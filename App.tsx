@@ -68,8 +68,9 @@ const App: React.FC = () => {
       setConfig(loadedConfig);
       setSessions(loadedSessions);
       
-      if (loadedSessions.length > 0) {
-        // We don't necessarily select the first session automatically
+      // Determine initial sidebar state based on window width
+      if (window.innerWidth >= 1024) {
+        setSidebarOpen(true);
       }
 
       // Route Logic
@@ -113,7 +114,7 @@ const App: React.FC = () => {
       let typingInterval: any;
 
       // 1. Play Audio
-      const audio = new Audio('/welcome.mp3');
+      const audio = new Audio('Welcome.mp3');
       audio.volume = 0.7;
       audio.play().catch(e => console.log("Audio play failed (interaction needed?):", e));
 
@@ -223,7 +224,16 @@ const App: React.FC = () => {
       let systemFeedback = "";
       if (response.isCommand && response.command === 'OPEN_APP' && response.appName) {
           const success = await desktopService.openApp(response.appName);
-          systemFeedback = success ? `\n\n[System] Opening ${response.appName}...` : `\n\n[System] Failed to open ${response.appName}.`;
+          if (success) {
+            systemFeedback = `\n\n[System] Opening ${response.appName}...`;
+          } else {
+             // Fallback message if not in Electron or failed
+             if (!(window as any).electron) {
+                 systemFeedback = `\n\n[Simulation] I would open "${response.appName}" if running in desktop mode.`;
+             } else {
+                 systemFeedback = `\n\n[System] Failed to open ${response.appName}. Check if installed.`;
+             }
+          }
       }
 
       // Handle Response
@@ -551,7 +561,7 @@ const App: React.FC = () => {
             <button onClick={() => setSidebarOpen(true)} className="p-2 text-gray-400 bg-gray-900 rounded-full hover:bg-gray-800 transition-colors"><Menu/></button>
          </div>
          <div className="glass-panel p-10 max-w-2xl w-full text-center animate-fade-scale flex flex-col items-center">
-            <img src="foxy.png" alt="Foxy AI" className="w-24 h-24 mb-4 object-contain drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]" />
+            <img src="Foxy.png" alt="Foxy AI" className="w-24 h-24 mb-4 object-contain drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]" />
             <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 mb-6">
                 Foxy AI
             </h1>

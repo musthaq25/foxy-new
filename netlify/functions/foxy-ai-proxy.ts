@@ -98,6 +98,10 @@ export const handler = async (event: any) => {
            - Block math: $$ \int_{0}^{\infty} x^2 dx $$ (surround with double dollar signs)
         3. **Emojis**: Use emojis sparingly (max 1-2 per section) to add flavor but keep it clean. Do not clutter the text.
         4. **Tone**: Engaging, smart, and precise.
+<<<<<<< HEAD
+=======
+        5. **OCR Context**: If the user's message contains [Attached Image Content Analysis], treat that text as what the user is seeing in an image. Answer based on that text.
+>>>>>>> master
         
         Do not output JSON. Output the natural language response directly.`;
 

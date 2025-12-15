@@ -19,6 +19,7 @@ export interface Message {
   sender: 'user' | 'foxy';
   text: string;
   timestamp: string;
+  imageData?: string; // Base64 string for images
   isLoading?: boolean;
   isCommand?: boolean;
   commandData?: {

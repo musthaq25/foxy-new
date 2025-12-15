@@ -4,22 +4,25 @@ import { NETLIFY_AI_PROXY_URL } from '../constants';
 export const fetchAIResponse = async (
   session: Session, 
   userQuery: string, 
-  userName: string
+  userName: string,
+  imageData?: string | null
 ): Promise<AIResponse> => {
   
   // Format history for the backend
+  // Gemini expects a specific structure, but we'll let the proxy handle the conversion to GoogleGenAI types
   const history = session.messages
-    .filter(m => !m.isLoading && m.text)
+    .filter(m => !m.isLoading && (m.text || m.imageData))
     .slice(-20)
     .map(m => ({
       sender: m.sender,
       text: m.text,
-      // Pass raw text if needed, effectively mimicking the original app's structure
+      image: m.imageData // Pass history images if needed
     }));
 
   const payload = {
     session_id: session.id,
     query: userQuery,
+    image: imageData, // Current image being sent
     is_first_message: session.messages.length <= 1,
     mode: session.mode,
     history: history,

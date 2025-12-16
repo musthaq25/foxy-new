@@ -27,9 +27,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   return (
     <div 
-      className={`fixed top-0 left-0 h-full w-72 bg-gray-900/95 backdrop-blur-xl z-50 transform transition-transform duration-300 ease-in-out border-r border-gray-800 flex flex-col ${
+      className={`fixed top-0 left-0 h-full w-72 bg-gray-900/80 backdrop-blur-xl z-50 transform transition-transform duration-300 ease-in-out border-r border-gray-800 flex flex-col ${
         isOpen ? 'translate-x-0' : '-translate-x-full'
-      } lg:translate-x-0`} 
+      }`} 
     >
       <div className="flex items-center justify-between p-4 border-b border-gray-800">
         <h2 className="text-xl font-bold text-cyan-400 flex items-center gap-3">
@@ -38,7 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </h2>
         <button 
           onClick={() => onToggle(false)} 
-          className="lg:hidden p-2 text-gray-400 hover:text-white"
+          className="p-2 text-gray-400 hover:text-white"
         >
           <Menu size={20} />
         </button>

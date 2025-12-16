@@ -66,15 +66,22 @@ const App: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasPlayedIntroRef = useRef(false);
+  const isManualStopRef = useRef(false); // Track if user manually stopped listening
   
   // Audio Refs - Keep instances alive
   const welcomeAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // --- Initialization ---
   useEffect(() => {
-    // Pre-load audio
-    welcomeAudioRef.current = new Audio('Welcome.mp3');
-    welcomeAudioRef.current.volume = 0.7;
+    // Pre-load audio with error handling
+    try {
+        const audio = new Audio('Welcome.mp3');
+        audio.volume = 0.7;
+        audio.onerror = (e) => console.warn("Audio resource failed to load:", e);
+        welcomeAudioRef.current = audio;
+    } catch (e) {
+        console.warn("Audio initialization failed:", e);
+    }
 
     const init = async () => {
       const loadedConfig = await storageService.loadConfig();
@@ -83,7 +90,8 @@ const App: React.FC = () => {
       setConfig(loadedConfig);
       setSessions(loadedSessions);
       
-      if (window.innerWidth >= 1024) {
+      // Adjusted breakpoint to 640px (sm) to match Sidebar behavior
+      if (window.innerWidth >= 640) {
         setSidebarOpen(true);
       }
 
@@ -110,6 +118,12 @@ const App: React.FC = () => {
     if (screen !== Screen.LOADING && screen !== Screen.ONBOARDING_NAME && screen !== Screen.INTRO_SEQUENCE) {
       storageService.saveLastScreen(screen);
     }
+    
+    // Cleanup speech when leaving Jarvis mode
+    if (screen !== Screen.JARVIS_MODE) {
+        stopListening(true); // Force stop
+        speechService.stopSpeaking();
+    }
   }, [screen]);
 
   useEffect(() => {
@@ -118,19 +132,14 @@ const App: React.FC = () => {
 
   // --- Intro / Welcome Audio Effect ---
   useEffect(() => {
-    // This effect manages the typing animation. 
-    // The actual audio trigger happens on button click (to satisfy autoplay) 
-    // or if we land here programmatically.
-
     if (screen === Screen.INTRO_SEQUENCE) {
       hasPlayedIntroRef.current = true;
       const fullText = "Welcome to Foxy, your powerful voice assistant.";
       let charIndex = 0;
       let typingInterval: any;
 
-      // Ensure audio is playing if it wasn't triggered by click (fallback)
       if (welcomeAudioRef.current && welcomeAudioRef.current.paused) {
-          welcomeAudioRef.current.play().catch(e => console.warn("Autoplay prevented:", e));
+          welcomeAudioRef.current.play().catch(e => console.warn("Autoplay prevented or audio missing:", e));
       }
 
       typingInterval = setInterval(() => {
@@ -149,13 +158,10 @@ const App: React.FC = () => {
       return () => {
         clearInterval(typingInterval);
         clearTimeout(transitionTimeout);
-        // We generally let the audio finish naturally, but stop if component unmounts unexpectedly
       };
     } else if (screen === Screen.WELCOME) {
-      // If we land on Welcome screen directly (not from Intro)
       if (!hasPlayedIntroRef.current) {
         hasPlayedIntroRef.current = true;
-        // Try to play if we just loaded app (might fail without interaction)
         if(welcomeAudioRef.current) {
              welcomeAudioRef.current.play().catch(e => console.log("Waiting for user interaction to play welcome sound"));
         }
@@ -184,7 +190,7 @@ const App: React.FC = () => {
     setCurrentSessionId(newSession.id);
     storageService.saveSessions(updated);
     setScreen(mode === 'chat' ? Screen.CHAT_MODE : Screen.JARVIS_MODE);
-    setSidebarOpen(window.innerWidth >= 1024);
+    setSidebarOpen(window.innerWidth >= 640);
   };
 
   const updateSessionMessages = (sessionId: string, newMessages: Message[], newTitle?: string) => {
@@ -216,6 +222,12 @@ const App: React.FC = () => {
 
   // --- Actions ---
   const handleSendMessage = async (text: string) => {
+    // If speaking, stop speaking first
+    if (isSpeaking) {
+        speechService.stopSpeaking();
+        setIsSpeaking(false);
+    }
+    
     setErrorMessage(null);
     if ((!text.trim() && !selectedImage) || isProcessing || ocrProcessing) return;
     
@@ -235,7 +247,6 @@ const App: React.FC = () => {
     if (currentImage) {
         setOcrProcessing(true);
         try {
-            // Visualize OCR processing
             const loadingMsg: Message = {
                 id: crypto.randomUUID(),
                 sender: 'foxy',
@@ -243,14 +254,10 @@ const App: React.FC = () => {
                 timestamp: new Date().toISOString(),
                 isLoading: true
             };
-            // Add temp message
             updateSessionMessages(session.id, [...session.messages, loadingMsg]);
             
             const result = await Tesseract.recognize(currentImage, 'eng');
             extractedText = result.data.text;
-            
-            // Remove temp message
-            // We just rebuild messages in the next step
         } catch (e) {
             console.error("OCR Failed", e);
             extractedText = "Error extracting text from image.";
@@ -259,7 +266,6 @@ const App: React.FC = () => {
         }
     }
 
-    // Prepare final query (Original text + OCR results)
     const finalQuery = extractedText 
         ? `${text}\n\n[Attached Image Content Analysis]:\n${extractedText}` 
         : text;
@@ -285,12 +291,12 @@ const App: React.FC = () => {
 
     try {
       const tempSession = { ...session, messages: [...session.messages, userMsg] };
-      // Note: We pass `finalQuery` which contains OCR text to the backend
-      const response = await fetchAIResponse(tempSession, finalQuery, config.userName || 'User', null); // image is null because we already processed it
+      const response = await fetchAIResponse(tempSession, finalQuery, config.userName || 'User', null);
 
       // Handle Command Execution (Jarvis Mode)
       let systemFeedback = "";
       if (response.isCommand && response.command === 'OPEN_APP' && response.appName) {
+          // Wait for the desktop service
           const success = await desktopService.openApp(response.appName);
           if (success) {
             systemFeedback = `\n\n[System] Opening ${response.appName}...`;
@@ -315,15 +321,19 @@ const App: React.FC = () => {
       const finalMessages = [...session.messages, userMsg, aiMsg];
       updateSessionMessages(session.id, finalMessages, response.generatedTitle);
 
+      // Speak result if in Jarvis or listening was active
       if (screen === Screen.JARVIS_MODE || isListening) {
         setIsSpeaking(true);
+        // Ensure listening is off while speaking
+        stopListening(true); 
+        
         speechService.speak(response.greeting || response.text, 
             () => setIsSpeaking(true),
             () => {
                 setIsSpeaking(false);
-                // Restart listening only if in Jarvis mode and not processing a command that ended the flow
+                // Restart listening automatically only in Jarvis Mode
                 if (screen === Screen.JARVIS_MODE) {
-                     // Robust restart logic
+                     isManualStopRef.current = false; // Reset stop flag so it restarts
                      setTimeout(() => startListening(), 500);
                 }
             }
@@ -339,51 +349,65 @@ const App: React.FC = () => {
         timestamp: new Date().toISOString()
       };
       updateSessionMessages(session.id, [...session.messages, userMsg, errorMsg]);
-      if (screen === Screen.JARVIS_MODE) speechService.speak("I encountered an error.");
+      if (screen === Screen.JARVIS_MODE) {
+          speechService.speak("I encountered an error.", undefined, () => {
+              if (screen === Screen.JARVIS_MODE) setTimeout(() => startListening(), 500);
+          });
+      }
     } finally {
       setIsProcessing(false);
     }
   };
 
   const startListening = () => {
-    // If already listening, do nothing to avoid duplicate streams
-    if (isListening) return; 
-    
+    // Prevent duplicate starts
+    if (isListening || isSpeaking || isProcessing) return; 
+
     setErrorMessage(null);
+    isManualStopRef.current = false;
     setIsListening(true);
+    
     speechService.startListening(
       (text) => {
+        // Successful recognition
         setIsListening(false);
         handleSendMessage(text);
       },
       () => {
-        // On end (silence detected), check mode. If Jarvis, restart.
+        // On End (Silence or Stop)
         setIsListening(false);
-        if (screen === Screen.JARVIS_MODE && !isProcessing && !isSpeaking) {
-             // Use timeout to prevent rapid loops
+        
+        // If it wasn't a manual stop, and we are still in Jarvis mode, restart loop
+        if (!isManualStopRef.current && screen === Screen.JARVIS_MODE && !isProcessing && !isSpeaking) {
              setTimeout(() => {
-                 if (screen === Screen.JARVIS_MODE) startListening();
-             }, 1000);
+                 if (screen === Screen.JARVIS_MODE && !isManualStopRef.current) startListening();
+             }, 800);
         }
       },
       (err) => {
         setIsListening(false);
-        console.error("Speech Error", err);
-        // User-friendly error mapping
-        if (err === 'network') {
-            setErrorMessage("Network error: Please check your internet connection.");
-        } else if (err === 'not-allowed') {
-            setErrorMessage("Microphone access denied.");
-        } else if (err === 'no-speech') {
-             // Ignore no-speech errors usually
-        } else {
-            setErrorMessage(`Speech Error: ${err}`);
+        // Ignore "no-speech" in UI, just log
+        if (err !== 'no-speech') {
+            console.error("Speech Error", err);
+             // Only show user error for network/denied
+            if (err === 'network') {
+                setErrorMessage("Network error.");
+            } else if (err === 'not-allowed') {
+                setErrorMessage("Mic denied.");
+            }
+        }
+        // Restart loop if not fatal
+        if (!isManualStopRef.current && screen === Screen.JARVIS_MODE && err !== 'not-allowed') {
+            setTimeout(() => {
+                if (screen === Screen.JARVIS_MODE) startListening();
+            }, 1000);
         }
       }
     );
   };
 
-  const stopListening = () => {
+  const stopListening = (manual = true) => {
+    if (manual) isManualStopRef.current = true;
     speechService.stopListening();
     setIsListening(false);
   };
@@ -404,10 +428,9 @@ const App: React.FC = () => {
         <button 
           onClick={() => {
               if (config.userName && config.userName.trim() !== '') {
-                  // PLAY WELCOME AUDIO HERE on user interaction
                   if(welcomeAudioRef.current) {
                       welcomeAudioRef.current.currentTime = 0;
-                      welcomeAudioRef.current.play().catch(e => console.error("Audio play failed", e));
+                      welcomeAudioRef.current.play().catch(e => console.error("Audio play failed (interaction)", e));
                   }
                   
                   const newConfig = { ...config, userName: config.userName.trim() };
@@ -436,12 +459,12 @@ const App: React.FC = () => {
 
   const renderSettings = () => (
     <div className="flex flex-col h-screen bg-transparent animate-fade-in">
-      <div className="p-4 border-b border-gray-800 flex items-center lg:ml-72 bg-gray-900/90 backdrop-blur">
-         <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-gray-400 mr-2 hover:bg-gray-800 rounded transition-colors"><Menu/></button>
+      <div className={`p-4 border-b border-gray-800 flex items-center bg-gray-900/90 backdrop-blur z-20 sticky top-0 transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
+         <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 mr-2 hover:bg-gray-800 rounded transition-colors"><Menu/></button>
          <h1 className="text-xl font-bold text-white">Settings</h1>
       </div>
       
-      <div className="flex-grow p-6 overflow-y-auto lg:ml-72 transition-all">
+      <div className={`flex-grow p-6 overflow-y-auto transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
          <div className="max-w-2xl mx-auto space-y-6">
             <div className="glass-panel p-6">
                 <h2 className="text-lg font-semibold text-white mb-4">Profile</h2>
@@ -508,16 +531,16 @@ const App: React.FC = () => {
     const session = getCurrentSession();
     return (
         <div className="flex flex-col h-screen bg-transparent overflow-hidden relative animate-fade-in">
-            <div className="absolute top-0 left-0 right-0 p-4 z-40 flex items-center justify-between lg:ml-72">
+            <div className={`absolute top-0 left-0 right-0 p-4 z-40 flex items-center justify-between transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
                 <div className="flex items-center">
-                    <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-gray-400 mr-2 bg-black/50 rounded-full hover:bg-black/70 transition-colors"><Menu/></button>
+                    <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 mr-2 bg-black/50 rounded-full hover:bg-black/70 transition-colors"><Menu/></button>
                     <h1 className="text-xl font-bold text-indigo-400">{session?.title || 'Jarvis Mode'}</h1>
                 </div>
             </div>
 
-            <div className="flex-grow flex flex-col items-center justify-center lg:ml-72 relative z-10 p-6">
+            <div className={`flex-grow flex flex-col items-center justify-center relative z-10 p-6 transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
                 <div 
-                    onClick={() => isListening ? stopListening() : startListening()}
+                    onClick={() => isListening ? stopListening(true) : startListening()}
                     className={`w-64 h-64 rounded-full glass-panel flex items-center justify-center cursor-pointer transition-all duration-500 hover:scale-105 active:scale-95
                         ${isListening ? 'animate-listening-pulse border-emerald-500 shadow-[0_0_50px_rgba(16,185,129,0.4)]' : ''}
                         ${isSpeaking ? 'animate-orb-pulse border-cyan-500' : ''}
@@ -567,12 +590,12 @@ const App: React.FC = () => {
     const session = getCurrentSession();
     return (
         <div className="flex flex-col h-screen bg-transparent animate-fade-in">
-             <div className="p-4 border-b border-gray-800 flex items-center lg:ml-72 bg-gray-900/90 backdrop-blur z-20 sticky top-0">
-                <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-gray-400 mr-2 hover:bg-gray-800 rounded transition-colors"><Menu/></button>
+             <div className={`p-4 border-b border-gray-800 flex items-center bg-gray-900/90 backdrop-blur z-20 sticky top-0 transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
+                <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 mr-2 hover:bg-gray-800 rounded transition-colors"><Menu/></button>
                 <h1 className="text-xl font-bold text-cyan-400 truncate">{session?.title || 'Chat'}</h1>
              </div>
 
-             <div className="flex-grow overflow-y-auto lg:ml-72 p-4 pb-32 space-y-6">
+             <div className={`flex-grow overflow-y-auto p-4 pb-32 space-y-6 transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
                 {!session || session.messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-gray-500 animate-fade-scale">
                         <div className="glass-panel p-8 text-center">
@@ -616,7 +639,7 @@ const App: React.FC = () => {
                 <div ref={chatEndRef} />
              </div>
 
-             <div className="fixed bottom-0 left-0 right-0 lg:left-72 bg-gray-900/90 backdrop-blur border-t border-gray-800 p-4 z-30">
+             <div className={`fixed bottom-0 left-0 right-0 bg-gray-900/90 backdrop-blur border-t border-gray-800 p-4 z-30 transition-all duration-300 ${isSidebarOpen ? 'sm:left-72' : ''}`}>
                 <div className="max-w-4xl mx-auto flex flex-col gap-2">
                     {/* Image Preview */}
                     {selectedImage && (
@@ -637,7 +660,7 @@ const App: React.FC = () => {
                     
                     <div className="flex gap-2">
                         <button 
-                            onClick={() => isListening ? stopListening() : startListening()}
+                            onClick={() => isListening ? stopListening(true) : startListening()}
                             className={`p-3 rounded-xl transition-all duration-200 active:scale-95 ${isListening ? 'bg-red-500/20 text-red-400 animate-pulse' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}`}
                         >
                             {isListening ? <Square size={20} fill="currentColor" /> : <Mic size={20} />}
@@ -684,8 +707,8 @@ const App: React.FC = () => {
 
   const renderWelcome = () => (
     <div className="flex flex-col items-center justify-center h-screen bg-transparent p-4 relative animate-fade-in">
-         <div className="absolute top-4 left-4 lg:hidden">
-            <button onClick={() => setSidebarOpen(true)} className="p-2 text-gray-400 bg-gray-900 rounded-full hover:bg-gray-800 transition-colors"><Menu/></button>
+         <div className="absolute top-4 left-4">
+            <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 bg-gray-900 rounded-full hover:bg-gray-800 transition-colors"><Menu/></button>
          </div>
          <div className="glass-panel p-10 max-w-2xl w-full text-center animate-fade-scale flex flex-col items-center">
             {/* Logo Display with State Fallback */}
@@ -766,7 +789,7 @@ const App: React.FC = () => {
             onToggle={setSidebarOpen}
             onNavigate={(s) => {
                 setScreen(s);
-                if (window.innerWidth < 1024) setSidebarOpen(false);
+                if (window.innerWidth < 640) setSidebarOpen(false);
             }}
             onSwitchSession={(id) => {
                 setCurrentSessionId(id);
@@ -774,7 +797,7 @@ const App: React.FC = () => {
                 if (sess) {
                     setScreen(sess.mode === 'jarvis' ? Screen.JARVIS_MODE : Screen.CHAT_MODE);
                 }
-                if (window.innerWidth < 1024) setSidebarOpen(false);
+                if (window.innerWidth < 640) setSidebarOpen(false);
             }}
             onDeleteSession={(id) => {
                 const newSessions = sessions.filter(s => s.id !== id);

@@ -14,17 +14,23 @@ export const desktopService = {
    */
   openApp: async (appName: string): Promise<boolean> => {
     const electron = getElectron();
+    
+    // Debugging logs
+    console.log(`[DesktopService] Attempting to open: ${appName}`);
+    console.log(`[DesktopService] Electron detected: ${!!electron}`);
+
     if (!electron) {
-      console.warn('Desktop service not available. Cannot open:', appName);
+      console.warn('[DesktopService] Desktop service not available (Not in Electron).');
       return false;
     }
 
     try {
-      console.log(`[DesktopService] Requesting to open: ${appName}`);
+      // Invoke the IPC handler defined in Electron's main process
       const result = await electron.invoke('system:open-app', appName);
-      return result.success;
+      console.log(`[DesktopService] Result:`, result);
+      return result && result.success;
     } catch (error) {
-      console.error('Failed to execute desktop command:', error);
+      console.error('[DesktopService] Failed to execute desktop command:', error);
       return false;
     }
   }

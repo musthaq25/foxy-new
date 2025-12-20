@@ -107,7 +107,8 @@ const App: React.FC = () => {
 
   // --- Auth Actions ---
   const handleLogin = () => {
-    window.location.href = '/.netlify/functions/auth-google-login';
+    // Updated to the corrected google-login endpoint
+    window.location.href = '/.netlify/functions/google-login';
   };
 
   const handleContinueAsGuest = () => {

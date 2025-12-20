@@ -1,5 +1,7 @@
+
 export enum Screen {
   LOADING = 'loading',
+  AUTH = 'auth',
   ONBOARDING_NAME = 'onboarding_name',
   INTRO_SEQUENCE = 'intro_sequence',
   WELCOME = 'welcome',
@@ -12,6 +14,14 @@ export enum Screen {
 export enum Theme {
   DARK = 'dark',
   LIQUID_GLASS = 'liquid_glass',
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+  isGuest: boolean;
 }
 
 export interface Message {

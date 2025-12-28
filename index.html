@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,30 +20,30 @@
                     animation: {
                         'orb-pulse': 'orbPulse 4s infinite ease-in-out',
                         'listening-pulse': 'listeningPulse 1.5s infinite ease-in-out',
-                        'fade-in': 'fadeIn 0.25s ease-out forwards',
-                        'fade-scale': 'fadeAndScale 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                        'slide-up': 'slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                        'fade-in': 'fadeIn 0.2s ease-out forwards',
+                        'fade-scale': 'fadeAndScale 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                        'slide-up': 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
                     },
                     keyframes: {
                         fadeIn: {
-                            '0%': { opacity: '0', transform: 'translateY(8px)' },
+                            '0%': { opacity: '0', transform: 'translateY(5px)' },
                             '100%': { opacity: '1', transform: 'translateY(0)' },
                         },
                         fadeAndScale: {
-                            '0%': { opacity: '0', transform: 'scale(0.97)' },
+                            '0%': { opacity: '0', transform: 'scale(0.98)' },
                             '100%': { opacity: '1', transform: 'scale(1)' },
                         },
                         slideUp: {
-                          '0%': { opacity: '0', transform: 'translateY(20px)' },
+                          '0%': { opacity: '0', transform: 'translateY(15px)' },
                           '100%': { opacity: '1', transform: 'translateY(0)' },
                         },
                         orbPulse: {
-                            '0%, 100%': { transform: 'scale(1)', boxShadow: '0 0 20px rgba(6, 182, 212, 0.2)' },
-                            '50%': { transform: 'scale(1.03)', boxShadow: '0 0 40px rgba(6, 182, 212, 0.5)' },
+                            '0%, 100%': { transform: 'scale(1)', boxShadow: '0 0 15px rgba(6, 182, 212, 0.15)' },
+                            '50%': { transform: 'scale(1.02)', boxShadow: '0 0 30px rgba(6, 182, 212, 0.35)' },
                         },
                         listeningPulse: {
-                            '0%, 100%': { transform: 'scale(1)', boxShadow: '0 0 10px #10b981', borderColor: '#10b981' },
-                            '50%': { transform: 'scale(1.05)', boxShadow: '0 0 25px #10b981', borderColor: '#34d399' },
+                            '0%, 100%': { transform: 'scale(1)', boxShadow: '0 0 8px #10b981' },
+                            '50%': { transform: 'scale(1.04)', boxShadow: '0 0 20px #10b981' },
                         },
                     }
                 }
@@ -82,25 +83,27 @@
         .glass-panel {
             background: var(--glass-bg);
             border: 1px solid var(--glass-border);
-            backdrop-filter: blur(24px); 
-            -webkit-backdrop-filter: blur(24px);
-            border-radius: 24px;
-        }
-
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { 
-            background: rgba(var(--accent-color), 0.2); 
+            backdrop-filter: blur(20px); 
+            -webkit-backdrop-filter: blur(20px);
             border-radius: 20px;
         }
 
-        .markdown-content p { margin-bottom: 1rem; line-height: 1.6; color: inherit; }
-        .markdown-content strong { color: var(--text-main); font-weight: 700; }
-        .markdown-content code { background: rgba(var(--accent-color), 0.1); padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; }
-        .markdown-content pre { background: rgba(0,0,0,0.5); padding: 1rem; border-radius: 12px; margin: 1rem 0; overflow-x: auto; text-align: left; border: 1px solid var(--glass-border); }
-        .markdown-content pre code { background: none; padding: 0; color: #ecf0f1; }
+        ::-webkit-scrollbar { width: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { 
+            background: rgba(var(--accent-color), 0.15); 
+            border-radius: 10px;
+        }
 
-        h1, h2, h3, h4, p, span, div, input, textarea, button {
+        .markdown-content p { margin-bottom: 0.8rem; line-height: 1.5; color: inherit; }
+        .markdown-content ul, .markdown-content ol { margin-bottom: 0.8rem; padding-left: 1.25rem; }
+        .markdown-content li { margin-bottom: 0.4rem; list-style-type: disc; }
+        .markdown-content strong { color: var(--text-main); font-weight: 700; }
+        .markdown-content code { background: rgba(var(--accent-color), 0.08); padding: 0.15rem 0.35rem; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+        .markdown-content pre { background: rgba(0,0,0,0.6); padding: 1.25rem; border-radius: 12px; margin: 1.2rem 0; overflow-x: auto; text-align: left; border: 1px solid var(--glass-border); }
+        .markdown-content pre code { background: none; padding: 0; color: #f8f9fa; display: block; }
+
+        h1, h2, h3, h4, p, span, div, input, textarea, button, li {
             color: var(--text-main);
             letter-spacing: normal !important;
         }

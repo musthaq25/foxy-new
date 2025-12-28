@@ -6,7 +6,8 @@ export const fetchAIResponse = async (
   session: Session, 
   userQuery: string, 
   userName: string,
-  imageData?: string | null
+  imageData?: string | null,
+  studyMode: boolean = false
 ): Promise<AIResponse> => {
   try {
     const isFirstMessage = session.messages.length === 0;
@@ -20,7 +21,8 @@ export const fetchAIResponse = async (
         mode: session.mode,
         user_name: userName,
         is_first_message: isFirstMessage,
-        image_data: imageData // Note: Llama 3.1 8b on Groq might not support vision directly, so this acts as placeholder
+        image_data: imageData,
+        study_mode: studyMode
       }),
     });
 

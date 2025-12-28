@@ -1,4 +1,5 @@
-import { Theme } from './types';
+
+import { Theme, AppConfig } from './types';
 
 export const STORAGE_KEYS = {
   CONFIG: 'foxy_config',
@@ -16,8 +17,9 @@ export const ACCENT_COLORS = {
   ORANGE: '249, 115, 22',
 };
 
-export const DEFAULT_CONFIG = {
+export const DEFAULT_CONFIG: AppConfig = {
   userName: null,
   theme: Theme.DARK,
   accentColor: ACCENT_COLORS.CYAN,
+  studyMode: false,
 };

@@ -11,7 +11,8 @@ import { visionService } from './services/visionService';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Menu, Send, Mic, Loader, Paperclip, X, LogOut, Moon, Sun, Monitor, Sparkles, Heart, ExternalLink, Globe, Eye, Scan, Info, Cpu, MessageSquare } from 'lucide-react';
+import FoxyLogo from './assets/Foxy.png';
+import { Menu, Send, Mic, Loader, Paperclip, X, LogOut, Globe, Eye, Scan, MessageSquare, Plus, BookOpen, Palette, Check, Sun, Moon, Coffee } from 'lucide-react';
 
 interface NewsItem {
   title: string; source: string; description: string; url: string; publishedAt: string;
@@ -20,9 +21,9 @@ interface NewsItem {
 const AIResponseBubble = ({ text }: { text: string }) => {
   if (!text) return null;
   return (
-    <div className="w-full flex justify-start animate-fade-in py-4">
-      <div className="w-full max-w-[75ch] glass-panel bg-white/[0.03] border-white/10 p-6 md:p-8 shadow-sm">
-        <div className="markdown-content text-[var(--text-main)] leading-relaxed">
+    <div className="w-full flex justify-center animate-fade-in py-4">
+      <div className="w-full max-w-[70ch] glass-panel bg-white/[0.03] border-white/10 p-6 md:p-8 shadow-sm">
+        <div className="markdown-content text-[var(--text-main)] leading-relaxed text-left">
           <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
             {text}
           </ReactMarkdown>
@@ -40,6 +41,7 @@ const App: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -57,6 +59,7 @@ const App: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -87,6 +90,16 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(event.target as Node)) {
+        setIsPlusMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
     if (screen === Screen.WELCOME) fetchNews();
     if (screen !== Screen.JARVIS_MODE) stopVision();
   }, [screen]);
@@ -109,6 +122,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     document.body.className = config.theme === Theme.WHITE ? 'theme-white' : 
+                             config.theme === Theme.SOFT ? 'theme-soft' :
                              config.theme === Theme.LIQUID_GLASS ? 'theme-liquid-glass' : '';
     document.documentElement.style.setProperty('--accent-color', config.accentColor);
   }, [config.theme, config.accentColor]);
@@ -124,7 +138,6 @@ const App: React.FC = () => {
     setIsListening(false);
   };
 
-  // helper to remove empty sessions from history
   const cleanupSessions = (activeId: string | null) => {
     setSessions(prev => {
       const filtered = prev.filter(s => s.messages.length > 0 || s.id === activeId);
@@ -134,7 +147,7 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async (text: string) => {
-    if (user?.isGuest && guestCount >= 20) return;
+    if (user?.isGuest && guestCount >= 50) return;
     if ((!text.trim() && !selectedImage) || isProcessing) return;
     
     let currentSession = sessions.find(s => s.id === currentSessionId);
@@ -151,15 +164,15 @@ const App: React.FC = () => {
     setInputValue('');
     setSelectedImage(null);
 
-    const fullQuery = isVisionActive ? `[CONTEXT: Screen capture text: ${visionOCRText.substring(0, 800)}]\n\nUser Question: ${text}` : text;
+    const fullQuery = isVisionActive ? `[VISION CONTEXT: ${visionOCRText.substring(0, 1000)}]\n\nQuestion: ${text}` : text;
     const userMsg: Message = { id: crypto.randomUUID(), sender: 'user', text, imageData: currentImg || undefined, timestamp: new Date().toISOString() };
-    const loadingMsg: Message = { id: crypto.randomUUID(), sender: 'foxy', text: 'Synthesizing...', timestamp: new Date().toISOString(), isLoading: true };
+    const loadingMsg: Message = { id: crypto.randomUUID(), sender: 'foxy', text: 'Thinking...', timestamp: new Date().toISOString(), isLoading: true };
     
     if (!isVisionActive) updateSessionMessages(currentSession.id, [...currentSession.messages, userMsg, loadingMsg]);
 
     try {
       if (user?.isGuest) setGuestCount(storageService.incrementGuestCount());
-      const response = await fetchAIResponse(currentSession, fullQuery, config.userName || 'User', currentImg);
+      const response = await fetchAIResponse(currentSession, fullQuery, config.userName || 'User', currentImg, config.studyMode);
       
       if (response.isCommand && response.command === 'OPEN_APP') {
           desktopService.openApp(response.appName || '');
@@ -173,13 +186,15 @@ const App: React.FC = () => {
         updateSessionMessages(currentSession.id, [...currentSession.messages, userMsg, aiMsg], response.generatedTitle);
       }
 
-      setIsSpeaking(true);
-      speechService.speak(response.greeting || response.text, undefined, () => {
-          setIsSpeaking(false);
-          if (screen === Screen.JARVIS_MODE) startListening();
-      });
+      if (screen === Screen.JARVIS_MODE) {
+        setIsSpeaking(true);
+        speechService.speak(response.greeting || response.text, undefined, () => {
+            setIsSpeaking(false);
+            if (screen === Screen.JARVIS_MODE) startListening();
+        });
+      }
     } catch (e) { 
-        if (!isVisionActive) updateSessionMessages(currentSession.id, [...currentSession.messages, userMsg, { id: 'err', sender: 'foxy', text: "Connection disrupted. 🦊", timestamp: '' }]);
+        if (!isVisionActive) updateSessionMessages(currentSession.id, [...currentSession.messages, userMsg, { id: 'err', sender: 'foxy', text: "The neural link was interrupted. 🦊", timestamp: '' }]);
     } finally { 
       setIsProcessing(false); 
       setVisionStatus('idle');
@@ -206,7 +221,7 @@ const App: React.FC = () => {
     const stream = await visionService.startScreenCapture();
     if (stream) {
       setIsVisionActive(true);
-      setVisionOverlayText("Vision active. I'm watching your screen.");
+      setVisionOverlayText("Vision online. I'm viewing your workspace.");
       const video = document.createElement('video');
       video.srcObject = stream;
       video.play();
@@ -220,6 +235,8 @@ const App: React.FC = () => {
         setVisionStatus('idle');
       }, 5000);
       (window as any)._visionInterval = interval;
+      
+      startListening();
     }
   };
 
@@ -241,14 +258,26 @@ const App: React.FC = () => {
     );
   };
 
+  const updateTheme = (newTheme: Theme) => {
+    const newConfig = { ...config, theme: newTheme };
+    setConfig(newConfig);
+    storageService.saveConfig(newConfig);
+  };
+
+  const toggleStudyMode = () => {
+    const newConfig = { ...config, studyMode: !config.studyMode };
+    setConfig(newConfig);
+    storageService.saveConfig(newConfig);
+  };
+
   const renderWelcome = () => (
     <div className={`flex flex-col items-center justify-start min-h-screen p-6 overflow-y-auto animate-fade-in relative transition-all ${isSidebarOpen ? 'lg:ml-72' : ''}`}>
          <div className="max-w-4xl w-full flex flex-col items-center space-y-12 py-20">
             <div className="text-center space-y-4">
-              <img src="Foxy.png" alt="Foxy" className="w-20 h-20 mx-auto mb-4" />
+              <img src={FoxyLogo} alt="Foxy" className="w-24 h-24 mx-auto mb-4" />
               <div className="space-y-1">
-                <h1 className="text-4xl font-black">Welcome, {config.userName}</h1>
-                <p className="text-[var(--text-muted)] text-lg font-medium">Your premium tutor and assistant.</p>
+                <h1 className="text-4xl font-black">Hi, {config.userName}</h1>
+                <p className="text-[var(--text-muted)] text-lg font-medium italic">Premium AI Assistant & Tutor.</p>
               </div>
             </div>
 
@@ -259,8 +288,8 @@ const App: React.FC = () => {
                             <Mic size={28} className="text-indigo-400" />
                         </div>
                         <div className="text-left">
-                            <h3 className="text-lg font-black uppercase">Jarvis</h3>
-                            <p className="text-xs text-gray-400 font-medium">Voice & Vision interface.</p>
+                            <h3 className="text-lg font-black uppercase tracking-widest">Jarvis Brain</h3>
+                            <p className="text-xs text-gray-400 font-medium">Full Voice & Vision link.</p>
                         </div>
                     </div>
                 </button>
@@ -271,8 +300,8 @@ const App: React.FC = () => {
                             <MessageSquare size={28} className="text-cyan-400" />
                         </div>
                         <div className="text-left">
-                            <h3 className="text-lg font-black uppercase">Chat</h3>
-                            <p className="text-xs text-gray-400 font-medium">Educational text chat.</p>
+                            <h3 className="text-lg font-black uppercase tracking-widest">Chat Mode</h3>
+                            <p className="text-xs text-gray-400 font-medium">Text-based tutoring.</p>
                         </div>
                     </div>
                 </button>
@@ -282,9 +311,9 @@ const App: React.FC = () => {
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2">
                   <Globe className="text-cyan-500" size={16} />
-                  <h2 className="text-xs font-black uppercase tracking-widest">Neural Intel Feed</h2>
+                  <h2 className="text-xs font-black uppercase tracking-widest">Neural Intelligence Feed</h2>
                 </div>
-                <button onClick={fetchNews} className="text-[10px] font-black uppercase text-gray-500 hover:text-cyan-400">Sync</button>
+                <button onClick={fetchNews} className="text-[10px] font-black uppercase text-gray-500 hover:text-cyan-400 transition-colors">Sync</button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {isLoadingNews ? (
@@ -309,8 +338,8 @@ const App: React.FC = () => {
     const session = sessions.find(s => s.id === currentSessionId);
     return (
       <div className={`flex flex-col h-screen relative animate-fade-in transition-all ${isSidebarOpen ? 'lg:ml-72' : ''}`}>
-        <div className="flex-grow overflow-y-auto px-6 space-y-12 pb-64 pt-24 w-full">
-          <div className="max-w-[85ch] mx-auto w-full space-y-12">
+        <div className="flex-grow overflow-y-auto px-6 space-y-12 pb-64 pt-24 w-full flex flex-col items-center">
+          <div className="max-w-[75ch] w-full space-y-12">
             {session?.messages.map(m => (
               <div key={m.id} className={`flex w-full ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start w-full'}`}>
@@ -319,7 +348,7 @@ const App: React.FC = () => {
                     {m.isLoading ? (
                       <div className="py-4 flex items-center gap-3">
                           <Loader className="animate-spin text-cyan-500" size={18}/>
-                          <span className="text-[10px] text-cyan-500/80 font-black uppercase tracking-widest">Synthesizing...</span>
+                          <span className="text-[10px] text-cyan-500/80 font-black uppercase tracking-widest">Thinking...</span>
                       </div>
                     ) : (
                       m.sender === 'user' ? m.text : <AIResponseBubble text={m.text}/>
@@ -333,15 +362,90 @@ const App: React.FC = () => {
         </div>
 
         <div className="fixed bottom-0 left-0 right-0 p-8 bg-transparent z-40">
-          <div className={`max-w-3xl mx-auto glass-panel p-3 flex flex-col gap-2 shadow-2xl transition-all border-white/10 ${isSidebarOpen ? 'lg:ml-[calc(18rem+auto)]' : ''}`}>
+          <div className={`max-w-3xl mx-auto glass-panel p-3 flex flex-col gap-2 shadow-2xl transition-all border-white/10 relative ${isSidebarOpen ? 'lg:ml-[calc(18rem+auto)]' : ''}`}>
+            
             {selectedImage && (
-              <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl animate-fade-in">
+              <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl animate-fade-in mb-2">
                 <img src={selectedImage} className="w-12 h-12 rounded-lg object-cover border border-white/10" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex-grow italic">Visual Link Active</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex-grow italic">Visual Context Linked</span>
                 <button onClick={() => setSelectedImage(null)} className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg"><X size={16}/></button>
               </div>
             )}
+
             <div className="flex gap-2 items-end px-2">
+              <div className="relative" ref={plusMenuRef}>
+                <button 
+                  onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                  className={`p-2 mb-1 rounded-xl transition-all hover:bg-white/10 ${isPlusMenuOpen ? 'text-cyan-400 scale-110' : 'text-gray-500'}`}
+                >
+                  <Plus size={24}/>
+                </button>
+                
+                {isPlusMenuOpen && (
+                  <div className="absolute bottom-16 left-0 w-64 glass-panel border-white/10 shadow-2xl animate-fade-scale overflow-hidden z-50 p-2">
+                    <div className="space-y-1">
+                      <button 
+                        onClick={() => toggleStudyMode()}
+                        className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-all text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <BookOpen size={18} className={config.studyMode ? 'text-indigo-400' : 'text-gray-500'} />
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-widest">Study Mode</p>
+                            <p className="text-[10px] text-gray-500 font-medium">{config.studyMode ? 'Step-by-step Tutor' : 'General Assistant'}</p>
+                          </div>
+                        </div>
+                        <div className={`w-10 h-5 rounded-full relative transition-all ${config.studyMode ? 'bg-indigo-600' : 'bg-gray-700'}`}>
+                          <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.studyMode ? 'left-6' : 'left-1'}`}></div>
+                        </div>
+                      </button>
+
+                      <div className="h-px bg-white/5 my-2"></div>
+                      
+                      <div className="px-3 pt-1 pb-2 flex items-center gap-2">
+                        <Palette size={14} className="text-gray-500" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Theme Selector</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-1 px-1">
+                        <button 
+                          onClick={() => updateTheme(Theme.DARK)}
+                          className={`flex items-center justify-between p-2 rounded-lg transition-all ${config.theme === Theme.DARK ? 'bg-cyan-500/10 text-cyan-400' : 'hover:bg-white/5 text-gray-400'}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Moon size={16} />
+                            <span className="text-xs font-bold uppercase tracking-widest">Dark Mode</span>
+                          </div>
+                          {config.theme === Theme.DARK && <Check size={14} />}
+                        </button>
+                        
+                        <button 
+                          onClick={() => updateTheme(Theme.WHITE)}
+                          className={`flex items-center justify-between p-2 rounded-lg transition-all ${config.theme === Theme.WHITE ? 'bg-cyan-500/10 text-cyan-400' : 'hover:bg-white/5 text-gray-400'}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Sun size={16} />
+                            <span className="text-xs font-bold uppercase tracking-widest">Light Mode</span>
+                          </div>
+                          {config.theme === Theme.WHITE && <Check size={14} />}
+                        </button>
+
+                        <button 
+                          onClick={() => updateTheme(Theme.SOFT)}
+                          className={`flex items-center justify-between p-2 rounded-lg transition-all ${config.theme === Theme.SOFT ? 'bg-cyan-500/10 text-cyan-400' : 'hover:bg-white/5 text-gray-400'}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Coffee size={16} />
+                            <span className="text-xs font-bold uppercase tracking-widest">Soft Theme</span>
+                          </div>
+                          {config.theme === Theme.SOFT && <Check size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <button onClick={() => fileInputRef.current?.click()} className="p-2 mb-1.5 text-gray-500 hover:text-cyan-400 transition-colors"><Paperclip size={20}/></button>
               <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -351,6 +455,7 @@ const App: React.FC = () => {
                   reader.readAsDataURL(file);
                 }
               }} />
+
               <textarea 
                 ref={textareaRef}
                 value={inputValue}
@@ -362,9 +467,10 @@ const App: React.FC = () => {
                   }
                 }}
                 rows={1}
-                placeholder="Type your query..."
+                placeholder={config.studyMode ? "Ask me to explain..." : "Message Foxy..."}
                 className="flex-grow bg-transparent p-3 outline-none text-base font-medium text-[var(--text-main)] placeholder:text-gray-600 max-h-48 overflow-y-auto resize-none scrollbar-none"
               />
+
               <button onClick={() => handleSendMessage(inputValue)} className="p-3 mb-1 bg-cyan-600 rounded-2xl text-white hover:bg-cyan-500 transition-all shadow-xl active:scale-95"><Send size={18}/></button>
             </div>
           </div>
@@ -380,10 +486,10 @@ const App: React.FC = () => {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-cyan-900/10 via-black to-black"></div>
       <div className="glass-panel p-10 md:p-14 max-w-md w-full text-center space-y-12 animate-fade-scale shadow-[0_0_60px_rgba(6,182,212,0.1)] relative z-10 bg-black/40 border-white/10">
           <div className="space-y-4">
-            <img src="Foxy.png" className="w-20 h-20 mx-auto mb-4" />
+            <img src={FoxyLogo} className="w-24 h-24 mx-auto mb-4" />
             <div className="space-y-1">
-              <h1 className="text-4xl font-black uppercase text-white">Foxy AI</h1>
-              <p className="text-gray-500 text-[10px] font-black uppercase tracking-[0.2em]">NOMIX Edition</p>
+              <h1 className="text-4xl font-black uppercase text-white tracking-widest">Foxy AI</h1>
+              <p className="text-gray-500 text-[10px] font-black uppercase tracking-[0.3em]">NOMIX Edition</p>
             </div>
           </div>
           <div className="space-y-4">
@@ -425,8 +531,12 @@ const App: React.FC = () => {
           <div className="flex flex-col items-center gap-12">
             <div 
               onClick={() => {
-                if (isSpeaking || isListening) stopAllMedia();
-                else startListening();
+                if (isSpeaking || isListening || isProcessing) {
+                  stopAllMedia();
+                  setIsProcessing(false);
+                } else {
+                  startListening();
+                }
               }} 
               className={`w-64 h-64 rounded-full glass-panel flex items-center justify-center cursor-pointer transition-all duration-700 shadow-[0_0_50px_rgba(0,0,0,0.5)] border-2 ${isListening ? 'animate-listening-pulse border-emerald-500' : isSpeaking ? 'animate-orb-pulse border-cyan-500' : 'border-white/10 hover:border-cyan-500/50'}`}
             >
@@ -437,14 +547,14 @@ const App: React.FC = () => {
             
             <div className="flex flex-col items-center gap-6 animate-fade-in text-center">
               <div>
-                <h2 className="text-3xl font-black mb-1 uppercase tracking-widest">{isListening ? 'Listening' : isVisionActive ? 'Vision Neural' : 'Jarvis Mode'}</h2>
-                <p className="text-[var(--text-muted)] font-black text-[11px] uppercase tracking-[0.3em]">Link Synchronized</p>
+                <h2 className="text-3xl font-black mb-1 uppercase tracking-widest">{isListening ? 'Listening' : isVisionActive ? 'Neural Vision' : 'Jarvis Linked'}</h2>
+                <p className="text-[var(--text-muted)] font-black text-[11px] uppercase tracking-[0.3em]">Quantum Brain Synced</p>
               </div>
 
               {!isVisionActive && (
                 <button onClick={startVision} className="flex items-center gap-3 px-8 py-3 rounded-full border border-cyan-500/20 bg-cyan-500/5 hover:bg-cyan-500/10 transition-all group">
                    <Eye size={18} className="text-cyan-400"/>
-                   <span className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-400">Engage Foxy Vision</span>
+                   <span className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-400">Sync Vision</span>
                 </button>
               )}
             </div>
@@ -455,12 +565,12 @@ const App: React.FC = () => {
                 <div className="flex items-center justify-between border-b border-white/10 pb-4">
                   <div className="flex items-center gap-3">
                      <Scan className="text-cyan-500 animate-pulse" size={20}/>
-                     <span className="text-xs font-black uppercase tracking-widest text-cyan-500">Vision Stream Active</span>
+                     <span className="text-xs font-black uppercase tracking-widest text-cyan-500">Workspace Streaming</span>
                   </div>
                   <button onClick={stopVision} className="p-2 hover:bg-red-500/20 text-red-400 rounded-xl transition-colors"><X size={20}/></button>
                 </div>
-                <div className="max-h-56 overflow-y-auto text-sm font-medium pr-2 text-center text-gray-200 leading-relaxed custom-scrollbar">
-                  {visionOverlayText || "Synchronizing with your visual workspace..."}
+                <div className="max-h-56 overflow-y-auto text-sm font-medium pr-2 text-center text-gray-200 leading-relaxed custom-scrollbar italic">
+                  {visionOverlayText || "Streaming visual context..."}
                 </div>
               </div>
             </div>
@@ -470,15 +580,15 @@ const App: React.FC = () => {
       {screen === Screen.SETTINGS && (
         <div className={`flex flex-col h-screen p-8 overflow-y-auto transition-all ${isSidebarOpen ? 'lg:ml-72' : ''}`}>
           <div className="max-w-xl mx-auto w-full space-y-10 mt-20 pb-20">
-            <h1 className="text-3xl font-black uppercase tracking-widest">Neural Config</h1>
+            <h1 className="text-3xl font-black uppercase tracking-widest">Neural Signature</h1>
             <div className="glass-panel p-10 space-y-10 shadow-2xl border-white/10">
               <div className="space-y-4">
-                <label className="text-xs font-black uppercase tracking-widest text-[var(--text-muted)]">Biological Signature</label>
+                <label className="text-xs font-black uppercase tracking-widest text-[var(--text-muted)]">Biological Name</label>
                 <input type="text" value={config.userName || ''} onChange={(e) => { const n = {...config, userName: e.target.value}; setConfig(n); storageService.saveConfig(n); }} className="w-full bg-white/[0.03] border border-white/10 rounded-2xl p-5 outline-none focus:border-cyan-500 transition-all font-black text-xl text-white uppercase" />
               </div>
             </div>
             <button onClick={() => { storageService.setUser(null); setScreen(Screen.AUTH); }} className="w-full flex items-center justify-center gap-4 p-6 text-red-500/80 border border-red-500/10 rounded-2xl hover:bg-red-500/5 font-black uppercase text-xs tracking-[0.3em] shadow-lg transition-all active:scale-95">
-              <LogOut size={18}/> Terminate Neural Link
+              <LogOut size={18}/> Disconnect Neural Link
             </button>
           </div>
         </div>
@@ -489,16 +599,16 @@ const App: React.FC = () => {
            <div className="glass-panel p-12 md:p-16 max-w-sm w-full text-center space-y-10 animate-fade-scale border-white/10 bg-black/40">
               <div className="space-y-3 text-center">
                 <h2 className="text-3xl font-black uppercase text-white tracking-wider italic">Foxy</h2>
-                <p className="text-gray-400 text-[10px] font-black uppercase tracking-[0.3em]">Identity Verification</p>
+                <p className="text-gray-400 text-[10px] font-black uppercase tracking-[0.3em]">Identity Link Required</p>
               </div>
               <input 
                   type="text" 
-                  placeholder="USER_NAME" 
+                  placeholder="IDENTITY_TAG" 
                   className="w-full p-5 bg-white/[0.04] rounded-2xl outline-none focus:border-cyan-500 border border-white/10 font-black text-center text-xl text-white uppercase tracking-widest placeholder:text-gray-800" 
                   onChange={(e)=>setConfig({...config, userName: e.target.value})} 
               />
               <button onClick={()=>{ storageService.saveConfig(config); setScreen(Screen.WELCOME); }} className="w-full bg-cyan-600 py-5 rounded-2xl font-black text-xs shadow-2xl active:scale-95 transition-all uppercase tracking-[0.3em] text-white hover:bg-cyan-500">
-                Begin Sync
+                Initialize Brain
               </button>
            </div>
         </div>

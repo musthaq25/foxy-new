@@ -1,3 +1,4 @@
+
 export enum Screen {
   LOADING = 'loading',
   AUTH = 'auth',
@@ -12,6 +13,7 @@ export enum Theme {
   DARK = 'dark',
   LIQUID_GLASS = 'liquid_glass',
   WHITE = 'white',
+  SOFT = 'soft'
 }
 
 export interface User {
@@ -43,6 +45,7 @@ export interface AppConfig {
   userName: string | null;
   theme: Theme;
   accentColor: string;
+  studyMode: boolean;
 }
 
 export interface AIResponse {

@@ -1,27 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Screen, Theme, Session, AppConfig, Message, User } from './types';
-import { STORAGE_KEYS, DEFAULT_CONFIG } from './constants';
+import { STORAGE_KEYS, DEFAULT_CONFIG, ACCENT_COLORS } from './constants';
 import { Sidebar } from './components/Sidebar';
 import { storageService } from './services/storageService';
 import { speechService } from './services/speechService';
 import { desktopService } from './services/desktopService';
 import { fetchAIResponse } from './services/apiService';
+import { visionService } from './services/visionService';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Menu, Send, Mic, Square, Loader, Paperclip, X, LogOut, LogIn } from 'lucide-react';
-import Tesseract from 'tesseract.js';
+import { Menu, Send, Mic, Loader, Paperclip, X, LogOut, Moon, Sun, Monitor, Sparkles, Heart, ExternalLink, Globe, Eye, Scan, Info, Cpu, MessageSquare } from 'lucide-react';
+
+interface NewsItem {
+  title: string;
+  source: string;
+  description: string;
+  url: string;
+  publishedAt: string;
+}
 
 const AnimatedResponse = ({ text }: { text: string }) => {
   if (!text) return null;
   const blocks = text.split(/\n\n+/).filter(b => b.trim().length > 0);
   return (
-    <div className="space-y-4">
+    <div className="space-y-6 text-center mx-auto max-w-5xl markdown-content">
       {blocks.map((block, i) => (
         <div 
           key={i} 
           className="animate-fade-in opacity-0"
-          style={{ animationDelay: `${i * 0.8}s`, animationFillMode: 'forwards' }}
+          style={{ animationDelay: `${i * 0.01}s`, animationFillMode: 'forwards' }}
         >
           <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
             {block}
@@ -33,35 +41,32 @@ const AnimatedResponse = ({ text }: { text: string }) => {
 };
 
 const App: React.FC = () => {
-  // Authentication & Limitation State
   const [screen, setScreen] = useState<Screen>(Screen.LOADING);
   const [user, setUser] = useState<User | null>(null);
   const [guestCount, setGuestCount] = useState(0);
-
-  // App State
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSidebarOpen, setSidebarOpen] = useState(false);
-  
-  // UI State
   const [inputValue, setInputValue] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [ocrProcessing, setOcrProcessing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [isLoadingNews, setIsLoadingNews] = useState(false);
 
-  // Refs
+  const [isVisionActive, setIsVisionActive] = useState(false);
+  const [visionOCRText, setVisionOCRText] = useState('');
+  const [visionOverlayText, setVisionOverlayText] = useState('');
+  const [visionStatus, setVisionStatus] = useState<'idle' | 'analyzing' | 'responding'>('idle');
+  const visionVideoRef = useRef<HTMLVideoElement | null>(null);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isManualStopRef = useRef(false);
-  const welcomeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // --- Initialization ---
   useEffect(() => {
-    // Check URL for OAuth callback data
     const params = new URLSearchParams(window.location.search);
     const authData = params.get('auth_data');
     if (authData) {
@@ -71,428 +76,438 @@ const App: React.FC = () => {
         storageService.setUser(loggedUser);
         setUser(loggedUser);
         window.history.replaceState({}, document.title, window.location.pathname);
-      } catch (e) { console.error("Auth callback parse error", e); }
+      } catch (e) { console.error("Auth error", e); }
     }
-
-    try {
-        const audio = new Audio('Welcome.mp3');
-        audio.volume = 0.7;
-        welcomeAudioRef.current = audio;
-    } catch (e) { console.warn("Audio initialization failed:", e); }
 
     const init = async () => {
       const loadedUser = storageService.getUser();
       const loadedConfig = await storageService.loadConfig();
       const loadedSessions = await storageService.loadSessions();
-      const stats = storageService.getGuestStats();
-      
       setUser(loadedUser);
-      setGuestCount(stats.count);
+      setGuestCount(storageService.getGuestStats().count);
       setConfig(loadedConfig);
       setSessions(loadedSessions);
+      if (window.innerWidth >= 1024) setSidebarOpen(true);
       
-      if (window.innerWidth >= 640) setSidebarOpen(true);
-
-      if (!loadedUser) {
-        setScreen(Screen.AUTH);
-      } else if (!loadedConfig.userName || loadedConfig.userName.trim() === '') {
-        setScreen(Screen.ONBOARDING_NAME);
-      } else {
-        const last = await storageService.loadLastScreen() as Screen;
-        setScreen(last && last !== Screen.LOADING ? last : Screen.WELCOME);
-      }
+      if (!loadedUser) setScreen(Screen.AUTH);
+      else if (!loadedConfig.userName) setScreen(Screen.ONBOARDING_NAME);
+      else setScreen(Screen.WELCOME);
     };
     init();
   }, []);
 
-  // --- Auth Actions ---
-  const handleLogin = () => {
-    // Updated to the corrected google-login endpoint
-    window.location.href = '/.netlify/functions/google-login';
-  };
-
-  const handleContinueAsGuest = () => {
-    const guestUser: User = { id: 'guest', email: '', name: 'Guest', isGuest: true };
-    setUser(guestUser);
-    storageService.setUser(guestUser);
-    setScreen(Screen.ONBOARDING_NAME);
-  };
-
-  const handleLogout = () => {
-    storageService.setUser(null);
-    setUser(null);
-    setScreen(Screen.AUTH);
-  };
-
-  // --- Theme & Persistence ---
   useEffect(() => {
-    if (config.theme === Theme.LIQUID_GLASS) document.body.classList.add('theme-liquid-glass');
-    else document.body.classList.remove('theme-liquid-glass');
+    if (screen === Screen.WELCOME) fetchNews();
+    if (screen !== Screen.JARVIS_MODE) stopVision();
+  }, [screen]);
+
+  const fetchNews = async () => {
+    setIsLoadingNews(true);
+    try {
+      const response = await fetch('/.netlify/functions/news');
+      if (response.ok) {
+        const data = await response.json();
+        setNews(data);
+      }
+    } catch (e) { console.error("News fetch failed", e); }
+    finally { setIsLoadingNews(false); }
+  };
+
+  useEffect(() => {
+    document.body.className = config.theme === Theme.WHITE ? 'theme-white' : 
+                             config.theme === Theme.LIQUID_GLASS ? 'theme-liquid-glass' : '';
     document.documentElement.style.setProperty('--accent-color', config.accentColor);
   }, [config.theme, config.accentColor]);
 
   useEffect(() => {
-    if (screen !== Screen.LOADING && screen !== Screen.ONBOARDING_NAME && screen !== Screen.AUTH) {
-      storageService.saveLastScreen(screen);
-    }
-    if (screen !== Screen.JARVIS_MODE) {
-        stopListening(true);
-        speechService.stopSpeaking();
-    }
-  }, [screen]);
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [sessions, isProcessing]);
 
-  // --- Message Actions ---
+  const cleanupSessions = (activeId: string | null) => {
+    setSessions(prev => {
+      const cleaned = prev.filter(s => s.id === activeId || s.messages.length > 0);
+      storageService.saveSessions(cleaned);
+      return cleaned;
+    });
+  };
+
+  const startVision = async () => {
+    const stream = await visionService.startScreenCapture();
+    if (stream) {
+      setIsVisionActive(true);
+      setVisionOverlayText("Foxy Vision engaged. I'm looking at your screen.");
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.play();
+      visionVideoRef.current = video;
+      
+      const interval = window.setInterval(async () => {
+        if (!isVisionActive || !visionVideoRef.current) return;
+        setVisionStatus('analyzing');
+        const result = await visionService.performOCR(visionVideoRef.current);
+        setVisionOCRText(result.text);
+        setVisionStatus('idle');
+      }, 5000);
+      (window as any)._visionInterval = interval;
+    }
+  };
+
+  const stopVision = () => {
+    visionService.stopScreenCapture();
+    setIsVisionActive(false);
+    setVisionOverlayText('');
+    setVisionOCRText('');
+    if ((window as any)._visionInterval) {
+      clearInterval((window as any)._visionInterval);
+    }
+  };
+
   const handleSendMessage = async (text: string) => {
-    // Guard: Guest Limit reached
-    if (user?.isGuest && guestCount >= 5) {
-      setErrorMessage("Guest limit reached. Please sign in with Google.");
-      return;
-    }
-
-    if (isSpeaking) { speechService.stopSpeaking(); setIsSpeaking(false); }
-    setErrorMessage(null);
-    if ((!text.trim() && !selectedImage) || isProcessing || ocrProcessing) return;
+    if (user?.isGuest && guestCount >= 5) return;
+    if ((!text.trim() && !selectedImage) || isProcessing) return;
     
-    const session = getCurrentSession();
-    if (!session) { createSession(screen === Screen.JARVIS_MODE ? 'jarvis' : 'chat'); return; }
+    let currentSession = sessions.find(s => s.id === currentSessionId);
+    let isNewSession = false;
+
+    if (!currentSession) { 
+        isNewSession = true;
+        currentSession = { id: crypto.randomUUID(), title: 'New Conversation', mode: screen === Screen.JARVIS_MODE ? 'jarvis' : 'chat', messages: [], createdAt: Date.now() };
+        setSessions([currentSession, ...sessions]);
+        setCurrentSessionId(currentSession.id);
+    }
     
     setIsProcessing(true);
-    let currentImage = selectedImage;
-    setInputValue('');
-    setSelectedImage(null); 
-
-    // Guard & Increment Limit
-    if (user?.isGuest) {
-      const newCount = storageService.incrementGuestCount();
-      setGuestCount(newCount);
-    }
-
-    let extractedText = "";
-    if (currentImage) {
-        setOcrProcessing(true);
-        try {
-            const result = await Tesseract.recognize(currentImage, 'eng');
-            extractedText = result.data.text;
-        } catch (e) { extractedText = "Error scanning image."; }
-        finally { setOcrProcessing(false); }
-    }
-
-    const finalQuery = extractedText ? `${text}\n\n[Scan]:\n${extractedText}` : text;
-    const userMsg: Message = {
-      id: crypto.randomUUID(), sender: 'user', text: text || (currentImage ? "Analyzed image." : ""), imageData: currentImage || undefined, timestamp: new Date().toISOString()
-    };
+    if (isVisionActive) setVisionStatus('responding');
     
-    const foxyLoadingMsg: Message = { id: crypto.randomUUID(), sender: 'foxy', text: 'Thinking...', timestamp: new Date().toISOString(), isLoading: true };
-    const updatedMessages = [...session.messages, userMsg, foxyLoadingMsg];
-    updateSessionMessages(session.id, updatedMessages);
+    const currentImg = selectedImage;
+    setInputValue('');
+    setSelectedImage(null);
+
+    const enhancedText = isVisionActive ? `${text}\n\n[CONTEXT: Visible screen content detected: ${visionOCRText.substring(0, 1000)}]` : text;
+    const userMsg: Message = { id: crypto.randomUUID(), sender: 'user', text, imageData: currentImg || undefined, timestamp: new Date().toISOString() };
+    const loadingMsg: Message = { id: crypto.randomUUID(), sender: 'foxy', text: 'Synthesizing...', timestamp: new Date().toISOString(), isLoading: true };
+    
+    if (!isVisionActive) updateSessionMessages(currentSession.id, [...currentSession.messages, userMsg, loadingMsg]);
 
     try {
-      const response = await fetchAIResponse(session, finalQuery, config.userName || 'User', null);
+      if (user?.isGuest) setGuestCount(storageService.incrementGuestCount());
+      const response = await fetchAIResponse(currentSession, enhancedText, config.userName || 'User', currentImg);
       
-      let systemFeedback = "";
-      if (response.isCommand && response.command === 'OPEN_APP' && response.appName) {
-          const success = await desktopService.openApp(response.appName);
-          systemFeedback = success ? `\n\n[System] Opening ${response.appName}...` : `\n\n[System] App not found.`;
+      if (response.isCommand && response.command === 'OPEN_APP') {
+        await desktopService.openApp(response.appName || '');
       }
 
-      const aiMsg: Message = { id: crypto.randomUUID(), sender: 'foxy', text: response.text + systemFeedback, timestamp: new Date().toISOString() };
-      updateSessionMessages(session.id, [...session.messages, userMsg, aiMsg], response.generatedTitle);
+      const aiMsg: Message = { id: crypto.randomUUID(), sender: 'foxy', text: response.text, timestamp: new Date().toISOString() };
+      
+      if (isVisionActive) {
+        setVisionOverlayText(response.text);
+      } else {
+        updateSessionMessages(currentSession.id, [...currentSession.messages, userMsg, aiMsg], response.generatedTitle);
+      }
 
       if (screen === Screen.JARVIS_MODE || isListening) {
         setIsSpeaking(true);
-        stopListening(true); 
-        speechService.speak(response.greeting || response.text, () => setIsSpeaking(true), () => {
-            setIsSpeaking(false);
-            if (screen === Screen.JARVIS_MODE) {
-                 isManualStopRef.current = false;
-                 setTimeout(() => startListening(), 800);
-            }
+        speechService.speak(response.greeting || response.text, undefined, () => {
+          setIsSpeaking(false);
+          if (screen === Screen.JARVIS_MODE) startListening();
         });
       }
-    } catch (e) { setIsProcessing(false); }
-    finally { setIsProcessing(false); }
+    } catch (e) { 
+        if (!isVisionActive) updateSessionMessages(currentSession.id, [...currentSession.messages, userMsg, { id: 'err', sender: 'foxy', text: "Connection error.", timestamp: '' }]);
+    } finally { 
+      setIsProcessing(false); 
+      setVisionStatus('idle');
+    }
+  };
+
+  const updateSessionMessages = (id: string, msgs: Message[], title?: string) => {
+    setSessions(prev => {
+      const updated = prev.map(s => s.id === id ? { ...s, messages: msgs, title: title || s.title } : s);
+      const persistSessions = updated.filter(s => s.messages.length > 0);
+      storageService.saveSessions(persistSessions);
+      return updated;
+    });
   };
 
   const createSession = (mode: 'chat' | 'jarvis') => {
-    const newSession: Session = { id: crypto.randomUUID(), title: 'New', mode, messages: [], createdAt: Date.now() };
-    setSessions([newSession, ...sessions]);
-    setCurrentSessionId(newSession.id);
-    storageService.saveSessions([newSession, ...sessions]);
+    cleanupSessions(null);
+    setCurrentSessionId(null);
     setScreen(mode === 'chat' ? Screen.CHAT_MODE : Screen.JARVIS_MODE);
+    if (window.innerWidth < 1024) setSidebarOpen(false);
   };
-
-  const updateSessionMessages = (sessionId: string, newMessages: Message[], newTitle?: string) => {
-    const updated = sessions.map(s => s.id === sessionId ? { ...s, messages: newMessages, title: newTitle || s.title } : s);
-    setSessions(updated);
-    storageService.saveSessions(updated);
-  };
-
-  const scrollToBottom = () => setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-  const getCurrentSession = () => sessions.find(s => s.id === currentSessionId);
 
   const startListening = () => {
-    // Block listening if guest limit is reached
-    if (user?.isGuest && guestCount >= 5) {
-      setErrorMessage("Guest limit reached. Please sign in with Google.");
-      return;
-    }
-
-    if (isListening || isSpeaking || isProcessing) return; 
-    setErrorMessage(null);
-    isManualStopRef.current = false;
+    if (isListening || isSpeaking || isProcessing) return;
     setIsListening(true);
     speechService.startListening(
       (t) => { setIsListening(false); handleSendMessage(t); },
-      () => { 
-        setIsListening(false); 
-        if (!isManualStopRef.current && screen === Screen.JARVIS_MODE && !isProcessing && !isSpeaking) {
-             setTimeout(() => startListening(), 800);
-        }
-      },
-      (err) => { 
-        setIsListening(false); 
-        if (err !== 'no-speech' && !isManualStopRef.current && screen === Screen.JARVIS_MODE) {
-          setTimeout(() => startListening(), 1000);
-        }
-      }
+      () => setIsListening(false),
+      () => setIsListening(false)
     );
   };
-
-  const stopListening = (manual = true) => {
-    if (manual) isManualStopRef.current = true;
-    speechService.stopListening();
-    setIsListening(false);
-  };
-
-  // --- Screens ---
-
-  const renderAuth = () => (
-    <div className="flex flex-col items-center justify-center h-screen p-6 bg-transparent animate-fade-in">
-      <div className="glass-panel p-12 max-w-md w-full text-center">
-        <img src="Foxy.png" alt="Foxy" className="w-24 h-24 mx-auto mb-6 drop-shadow-lg" />
-        <h1 className="text-3xl font-bold text-white mb-2">Foxy AI</h1>
-        <p className="text-gray-400 mb-10">Sign in to sync your history and get unlimited access.</p>
-        
-        <div className="flex flex-col gap-4">
-          <button 
-            onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 bg-white text-gray-900 font-semibold py-4 rounded-xl hover:bg-gray-100 transition-all active:scale-95 shadow-lg"
-          >
-            <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-            Sign in with Google
-          </button>
-
-          <button 
-            onClick={handleContinueAsGuest}
-            className="w-full py-4 rounded-xl border border-gray-700 text-gray-400 hover:text-white hover:bg-gray-800 transition-all font-medium"
-          >
-            Continue as Guest
-          </button>
-        </div>
-        
-        <p className="mt-8 text-xs text-gray-500 uppercase tracking-widest">
-            Guest accounts: 5 messages per day.
-        </p>
-      </div>
-    </div>
-  );
 
   const renderWelcome = () => (
-    <div className="flex flex-col items-center justify-center h-screen p-4 animate-fade-in relative">
-         <div className="absolute top-4 left-4 flex gap-2">
-            <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 bg-gray-900/50 rounded-full hover:bg-gray-800 transition-colors"><Menu/></button>
-         </div>
-         <div className="absolute top-4 right-4 flex items-center gap-3">
-            <div className="flex flex-col items-end">
-                <span className="text-xs font-semibold text-white">{user?.name}</span>
-                {user?.isGuest && <span className="text-[10px] text-orange-400">Guest: {guestCount}/5 used</span>}
+    <div className={`flex flex-col items-center justify-start min-h-screen p-6 overflow-y-auto animate-fade-in transition-all ${isSidebarOpen ? 'lg:ml-72' : ''}`}>
+         <div className="max-w-4xl w-full flex flex-col items-center space-y-10 py-16">
+            <div className="text-center space-y-2">
+              <img src="Foxy.png" alt="Foxy" className="w-16 h-16 mx-auto drop-shadow-2xl mb-4" />
+              <div className="space-y-0.5">
+                <h1 className="text-4xl font-black">hi, {config.userName}</h1>
+                <p className="text-[var(--text-muted)] text-lg font-medium">How can I assist you today?</p>
+              </div>
             </div>
-            <button onClick={handleLogout} className="p-2 text-gray-400 bg-gray-900/50 rounded-full hover:text-red-400 transition-colors" title="Logout"><LogOut size={20}/></button>
-         </div>
-         <div className="glass-panel p-10 max-w-2xl w-full text-center flex flex-col items-center">
-            <img src="Foxy.png" alt="Foxy" className="w-32 h-32 mb-6 drop-shadow-xl" />
-            <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 mb-4">Foxy AI</h1>
-            <p className="text-xl text-gray-300 mb-10">Welcome back, <span className="text-cyan-400 font-semibold">{config.userName}</span>.</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                <button onClick={() => createSession('chat')} className="p-8 rounded-2xl bg-gray-800/40 border border-cyan-900/50 hover:border-cyan-500/50 transition-all active:scale-95 group">
-                    <Send size={32} className="mx-auto mb-4 text-cyan-400 group-hover:scale-110 transition-transform" />
-                    <h3 className="text-lg font-bold text-white">Chat Mode</h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
+                {/* COMPACT JARVIS MODE */}
+                <button onClick={() => createSession('jarvis')} className="group relative glass-panel p-5 border-white/10 hover:border-indigo-500/50 transition-all active:scale-[0.98] bg-white/[0.01]">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-indigo-500/10 rounded-xl group-hover:scale-105 transition-transform">
+                            <Mic size={24} className="text-indigo-400" />
+                        </div>
+                        <div className="text-left">
+                            <h3 className="text-sm font-black uppercase mb-0.5">Jarvis Mode</h3>
+                            <p className="text-[10px] text-gray-400 font-medium">Voice and screen control.</p>
+                        </div>
+                    </div>
                 </button>
-                <button onClick={() => createSession('jarvis')} className="p-8 rounded-2xl bg-gray-800/40 border border-indigo-900/50 hover:border-indigo-500/50 transition-all active:scale-95 group">
-                    <Mic size={32} className="mx-auto mb-4 text-indigo-400 group-hover:scale-110 transition-transform" />
-                    <h3 className="text-lg font-bold text-white">Jarvis Mode</h3>
+
+                {/* COMPACT CHAT MODE */}
+                <button onClick={() => createSession('chat')} className="group relative glass-panel p-5 border-white/10 hover:border-cyan-500/50 transition-all active:scale-[0.98] bg-white/[0.01]">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-cyan-500/10 rounded-xl group-hover:scale-105 transition-transform">
+                            <MessageSquare size={24} className="text-cyan-400" />
+                        </div>
+                        <div className="text-left">
+                            <h3 className="text-sm font-black uppercase mb-0.5">Chat Mode</h3>
+                            <p className="text-[10px] text-gray-400 font-medium">Detailed text interaction.</p>
+                        </div>
+                    </div>
                 </button>
+            </div>
+
+            <div className="w-full glass-panel p-6 border-white/5 space-y-4 bg-black/20 max-w-2xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Globe className="text-cyan-500" size={14} />
+                  <h2 className="text-[10px] font-black uppercase">Top Stories</h2>
+                </div>
+                <button onClick={fetchNews} className="text-[9px] font-black uppercase text-gray-500 hover:text-cyan-400">Refresh</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {isLoadingNews ? (
+                  <div className="col-span-full py-2 text-center opacity-40"><Loader className="animate-spin mx-auto" size={14}/></div>
+                ) : news.length > 0 ? (
+                  news.slice(0, 3).map((item, idx) => (
+                    <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-white/5 rounded-lg transition-all border border-transparent hover:border-white/5">
+                      <h3 className="text-[10px] font-bold line-clamp-2 leading-tight">{item.title}</h3>
+                      <p className="text-[8px] uppercase font-black text-gray-600 mt-1">{item.source}</p>
+                    </a>
+                  ))
+                ) : (
+                  <div className="col-span-full text-center py-2 text-gray-600 text-[9px]">No updates yet.</div>
+                )}
+              </div>
             </div>
          </div>
     </div>
   );
 
-  const renderJarvis = () => {
-    const session = getCurrentSession();
-    const isLimitReached = user?.isGuest && guestCount >= 5;
-
-    return (
-        <div className="flex flex-col h-screen bg-transparent overflow-hidden relative animate-fade-in">
-            <div className={`absolute top-0 left-0 right-0 p-4 z-40 flex items-center justify-between transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
-                <div className="flex items-center">
-                    <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 mr-2 bg-black/50 rounded-full hover:bg-black/70 transition-colors"><Menu/></button>
-                    <h1 className="text-xl font-bold text-indigo-400">{session?.title || 'Jarvis'}</h1>
-                </div>
-            </div>
-
-            <div className={`flex-grow flex flex-col items-center justify-center p-6 transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
-                <div 
-                    onClick={() => !isLimitReached && (isListening ? stopListening(true) : startListening())}
-                    className={`w-64 h-64 rounded-full glass-panel flex items-center justify-center cursor-pointer transition-all duration-500
-                        ${isListening ? 'animate-listening-pulse' : ''}
-                        ${isSpeaking ? 'animate-orb-pulse border-cyan-500' : ''}
-                        ${isProcessing ? 'animate-pulse' : ''}
-                        ${isLimitReached ? 'opacity-50 grayscale cursor-not-allowed' : ''}
-                    `}
-                >
-                    {isProcessing ? <Loader size={64} className="text-white animate-spin" /> : <Mic size={64} className={isListening ? 'text-emerald-400' : 'text-gray-400'} />}
-                </div>
-
-                <div className="mt-12 text-center max-w-md">
-                    <h2 className="text-3xl font-bold text-white mb-2">
-                      {isLimitReached ? "Limit Reached" : isListening ? "Listening..." : isProcessing ? "Thinking..." : "Jarvis Online"}
-                    </h2>
-                    <p className="text-gray-400">
-                      {isLimitReached 
-                        ? "Guest limit reached. Please sign in with Google." 
-                        : isListening ? "I'm listening for your command..." : "Tap the orb to speak."}
-                    </p>
-                    {isLimitReached && (
-                      <button 
-                        onClick={handleLogin}
-                        className="mt-6 px-6 py-2 bg-indigo-600 rounded-lg text-white font-bold hover:bg-indigo-500 transition-all flex items-center gap-2 mx-auto"
-                      >
-                        <LogIn size={18} /> Sign in
-                      </button>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-  };
-
   const renderChat = () => {
-    const session = getCurrentSession();
-    const isLimitReached = user?.isGuest && guestCount >= 5;
-
+    const session = sessions.find(s => s.id === currentSessionId);
     return (
-        <div className="flex flex-col h-screen bg-transparent animate-fade-in">
-             <div className={`p-4 border-b border-gray-800 flex items-center justify-between bg-gray-900/90 backdrop-blur z-20 transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
-                <div className="flex items-center">
-                  <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 mr-2 hover:bg-gray-800 rounded transition-colors"><Menu/></button>
-                  <h1 className="text-xl font-bold text-cyan-400 truncate">{session?.title || 'Chat'}</h1>
-                </div>
-                {user?.isGuest && (
-                  <span className={`text-[10px] font-bold px-2 py-1 rounded bg-gray-800 uppercase tracking-widest ${guestCount >= 4 ? 'text-orange-400' : 'text-gray-500'}`}>
-                    Limit: {guestCount}/5
-                  </span>
+      <div className={`flex flex-col h-screen relative animate-fade-in transition-all ${isSidebarOpen ? 'lg:ml-72' : ''}`}>
+        <div className="flex-grow overflow-y-auto px-6 py-24 space-y-12 pb-48">
+          {session?.messages.map(m => (
+            <div key={m.id} className={`flex w-full ${m.sender === 'user' ? 'justify-end' : 'justify-center'}`}>
+              <div className={`${m.sender === 'user' ? 'max-w-[80%] w-fit bg-[var(--user-bubble-bg)] text-[var(--user-bubble-text)] px-4 py-2.5 rounded-[20px] shadow-sm ml-auto border border-white/10' : 'w-full'}`}>
+                {m.imageData && <img src={m.imageData} className="max-w-[400px] rounded-2xl mb-4 shadow-xl border border-gray-700 mx-auto" alt="Uploaded" />}
+                {m.isLoading ? (
+                  <div className="flex justify-center py-4"><Loader className="animate-spin text-cyan-500" size={20}/></div>
+                ) : (
+                  <div className={m.sender === 'user' ? 'text-right text-sm font-medium' : 'text-[var(--text-main)]'}>
+                    {m.sender === 'user' ? m.text : <AnimatedResponse text={m.text}/>}
+                  </div>
                 )}
-             </div>
-
-             <div className={`flex-grow overflow-y-auto p-4 pb-32 space-y-6 transition-all duration-300 ${isSidebarOpen ? 'sm:ml-72' : ''}`}>
-                {session?.messages.map(msg => (
-                    <div key={msg.id} className={`flex w-full ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] p-4 rounded-2xl ${msg.sender === 'user' ? 'bg-gray-800 border border-gray-700 text-gray-100' : 'glass-panel text-gray-200'}`}>
-                            {msg.isLoading ? <Loader size={16} className="animate-spin text-cyan-400" /> : <AnimatedResponse text={msg.text} />}
-                        </div>
-                    </div>
-                ))}
-                <div ref={chatEndRef} />
-             </div>
-
-             <div className={`fixed bottom-0 left-0 right-0 bg-gray-900/90 backdrop-blur border-t border-gray-800 p-4 z-30 transition-all duration-300 ${isSidebarOpen ? 'sm:left-72' : ''}`}>
-                <div className="max-w-4xl mx-auto">
-                    {isLimitReached ? (
-                      <div className="glass-panel p-6 flex flex-col items-center text-center bg-orange-900/20 border-orange-500/30 animate-fade-scale">
-                        <p className="text-orange-400 font-bold mb-4 uppercase tracking-widest text-sm">Guest limit reached. Please sign in with Google.</p>
-                        <button onClick={handleLogin} className="bg-cyan-600 px-8 py-3 rounded-xl text-white font-bold hover:bg-cyan-500 transition-all active:scale-95 shadow-lg">
-                          Sign in with Google
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <input 
-                            type="text" 
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(inputValue)}
-                            placeholder="Type a message..."
-                            disabled={isProcessing}
-                            className="flex-grow bg-gray-800 border border-gray-700 rounded-xl px-4 text-white focus:outline-none focus:border-cyan-500 transition-colors disabled:opacity-50"
-                        />
-                        <button 
-                          onClick={() => handleSendMessage(inputValue)} 
-                          className="p-3 bg-cyan-600 text-white rounded-xl hover:bg-cyan-500 transition-all active:scale-95 disabled:opacity-50"
-                          disabled={isProcessing}
-                        >
-                          <Send size={20} />
-                        </button>
-                      </div>
-                    )}
-                </div>
-             </div>
+              </div>
+            </div>
+          ))}
+          <div ref={chatEndRef} />
         </div>
+
+        <div className="fixed bottom-0 left-0 right-0 p-6 bg-transparent z-40">
+          <div className={`max-w-2xl mx-auto glass-panel p-3 flex flex-col gap-2 shadow-2xl transition-all border-white/10 ${isSidebarOpen ? 'lg:ml-[calc(18rem+auto)]' : ''}`}>
+            {selectedImage && (
+              <div className="flex items-center gap-2 p-2 bg-gray-800/10 rounded-xl animate-fade-in">
+                <img src={selectedImage} className="w-10 h-10 rounded-lg object-cover" />
+                <span className="text-[10px] font-bold text-gray-500 flex-grow italic">Image Selected</span>
+                <button onClick={() => setSelectedImage(null)} className="p-1 text-red-400 hover:bg-red-400/10 rounded-full"><X size={14}/></button>
+              </div>
+            )}
+            <div className="flex gap-2 items-end">
+              <button onClick={() => fileInputRef.current?.click()} className="p-2 mb-1 text-gray-500 hover:text-cyan-400"><Paperclip size={18}/></button>
+              <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onloadend = () => setSelectedImage(reader.result as string);
+                  reader.readAsDataURL(file);
+                }
+              }} />
+              <textarea 
+                ref={textareaRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage(inputValue);
+                  }
+                }}
+                rows={1}
+                placeholder="Message Foxy..."
+                className="flex-grow bg-transparent p-2 outline-none text-base font-medium text-[var(--text-main)] placeholder:text-gray-600 max-h-40 overflow-y-auto resize-none"
+              />
+              <button onClick={() => handleSendMessage(inputValue)} className="p-3 mb-0.5 bg-cyan-600 rounded-2xl text-white hover:bg-cyan-500 transition-all shadow-xl active:scale-95"><Send size={16}/></button>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   };
 
-  const renderOnboarding = () => (
-    <div className="flex flex-col items-center justify-center h-screen p-6 animate-fade-scale">
-      <div className="glass-panel p-10 max-w-lg w-full text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">Profile Setup</h1>
-        <p className="text-gray-400 mb-8">What should Foxy call you?</p>
-        <input 
-          type="text" 
-          value={config.userName || ''}
-          placeholder="Your Name"
-          className="w-full p-4 mb-6 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:border-cyan-400 outline-none text-center"
-          onChange={(e) => setConfig({ ...config, userName: e.target.value })}
-        />
-        <button 
-          onClick={() => {
-              if (config.userName?.trim()) {
-                  storageService.saveConfig(config);
-                  setScreen(Screen.WELCOME);
-              }
-          }}
-          className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg"
-        >
-          Confirm Profile
-        </button>
+  const VisionOverlay = () => (
+    <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-xl animate-slide-up">
+      <div className="glass-panel p-6 shadow-3xl border-cyan-500/20 bg-gray-900/90 flex flex-col gap-4">
+        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+          <div className="flex items-center gap-3">
+            <div className={`p-1.5 rounded-lg ${visionStatus === 'analyzing' ? 'bg-amber-500/20 text-amber-500' : 'bg-cyan-500/20 text-cyan-500'}`}>
+              {visionStatus === 'analyzing' ? <Scan size={18} className="animate-pulse"/> : <Eye size={18}/>}
+            </div>
+            <span className="text-[10px] font-black uppercase">Foxy Vision</span>
+          </div>
+          <button onClick={stopVision} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg"><X size={16}/></button>
+        </div>
+        <div className="max-h-40 overflow-y-auto text-sm font-medium leading-relaxed pr-2 custom-scrollbar text-center">
+          {visionOverlayText || "Seeing your workspace..."}
+        </div>
       </div>
     </div>
   );
 
-  if (screen === Screen.LOADING) return <div className="h-screen w-screen flex items-center justify-center text-cyan-500"><Loader size={48} className="animate-spin" /></div>;
-  if (screen === Screen.AUTH) return renderAuth();
-  if (screen === Screen.ONBOARDING_NAME) return renderOnboarding();
+  if (screen === Screen.LOADING) return <div className="h-screen w-screen flex flex-col gap-4 items-center justify-center text-cyan-500 bg-black"><Loader size={40} className="animate-spin" /></div>;
+  
+  if (screen === Screen.AUTH) return (
+    <div className="flex flex-col items-center justify-center h-screen bg-black font-sans relative overflow-hidden px-6">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-cyan-900/10 via-black to-black"></div>
+      
+      <div className="glass-panel p-10 md:p-14 max-w-md w-full text-center space-y-10 animate-fade-scale shadow-[0_0_60px_rgba(6,182,212,0.1)] relative z-10 bg-black/40 border-white/10">
+          <div className="space-y-4">
+            <img src="Foxy.png" className="w-16 h-16 mx-auto drop-shadow-2xl mb-4" />
+            <div className="space-y-0.5">
+              <h1 className="text-3xl font-black uppercase text-white">Foxy AI</h1>
+              <p className="text-gray-500 text-[10px] font-black uppercase">NOMIX Edition</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <button onClick={() => window.location.href = '/.netlify/functions/google-login'} className="w-full flex items-center justify-center gap-4 bg-white text-black py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all text-sm uppercase hover:bg-gray-200">
+              <img src="https://www.google.com/favicon.ico" className="w-5 h-5" /> Sign in with Google
+            </button>
+            <button onClick={() => { setUser({id: 'guest', email:'', name: 'Guest', isGuest: true}); setScreen(Screen.ONBOARDING_NAME); }} className="w-full py-4 text-gray-500 hover:text-white transition-all text-xs font-black uppercase">
+              Guest
+            </button>
+          </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="h-screen w-screen bg-transparent text-white overflow-hidden font-sans">
-        <Sidebar 
-            isOpen={isSidebarOpen} currentScreen={screen} sessions={sessions} currentSessionId={currentSessionId}
-            onToggle={setSidebarOpen}
-            onNavigate={(s) => { setScreen(s); if (window.innerWidth < 640) setSidebarOpen(false); }}
-            onSwitchSession={(id) => { 
-              setCurrentSessionId(id); 
-              const s = sessions.find(x => x.id === id);
-              if (s) setScreen(s.mode === 'jarvis' ? Screen.JARVIS_MODE : Screen.CHAT_MODE);
-              if (window.innerWidth < 640) setSidebarOpen(false); 
-            }}
-            onDeleteSession={(id) => {
-                const updated = sessions.filter(s => s.id !== id);
-                setSessions(updated); storageService.saveSessions(updated);
-                if (currentSessionId === id) { setCurrentSessionId(null); setScreen(Screen.WELCOME); }
-            }}
-            onNewSession={(mode) => createSession(mode)}
-        />
-        {screen === Screen.WELCOME && renderWelcome()}
-        {screen === Screen.CHAT_MODE && renderChat()}
-        {screen === Screen.JARVIS_MODE && renderJarvis()}
+    <div className="h-screen w-screen bg-transparent text-[var(--text-main)] overflow-hidden font-sans selection:bg-cyan-500/30">
+      {!isVisionActive && (
+        <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="fixed top-8 left-8 z-[60] p-3.5 glass-panel text-gray-500 hover:text-[var(--text-main)] transition-all shadow-2xl active:scale-90 border-white/10">
+          <Menu size={22}/>
+        </button>
+      )}
+
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        currentScreen={screen} 
+        sessions={sessions.filter(s => s.messages.length > 0)} 
+        currentSessionId={currentSessionId}
+        onToggle={setSidebarOpen} 
+        onNavigate={(s) => { cleanupSessions(currentSessionId); setScreen(s); if(window.innerWidth < 1024) setSidebarOpen(false); }}
+        onSwitchSession={(id) => { cleanupSessions(id); setCurrentSessionId(id); setScreen(sessions.find(s=>s.id===id)?.mode==='jarvis'?Screen.JARVIS_MODE:Screen.CHAT_MODE); if(window.innerWidth < 1024) setSidebarOpen(false); }}
+        onDeleteSession={(id) => { setSessions(prev => prev.filter(s=>s.id!==id)); if (id===currentSessionId) setScreen(Screen.WELCOME); }}
+        onNewSession={createSession}
+      />
+
+      {screen === Screen.WELCOME && renderWelcome()}
+      {screen === Screen.CHAT_MODE && renderChat()}
+      {screen === Screen.JARVIS_MODE && (
+        <div className={`flex flex-col items-center justify-center h-screen transition-all ${isSidebarOpen ? 'lg:ml-72' : ''}`}>
+          <div className="flex flex-col items-center gap-10">
+            <div onClick={() => isListening ? speechService.stopListening() : startListening()} className={`w-60 h-60 rounded-full glass-panel flex items-center justify-center cursor-pointer transition-all duration-700 shadow-3xl ${isListening ? 'animate-listening-pulse border-emerald-500/50' : isSpeaking ? 'animate-orb-pulse border-cyan-500/50' : 'border-white/5'}`}>
+              <div className="relative">
+                  {isProcessing ? <Loader className="animate-spin text-white" size={48}/> : <Mic size={48} className={isListening ? 'text-emerald-400' : 'text-gray-500'}/>}
+              </div>
+            </div>
+            
+            <div className="flex flex-col items-center gap-6 animate-fade-in text-center">
+              <div>
+                <h2 className="text-2xl font-black mb-1 uppercase">{isListening ? 'Listening...' : isVisionActive ? 'Vision Active' : 'Jarvis Mode'}</h2>
+                <p className="text-[var(--text-muted)] font-bold text-[10px] uppercase">Awaiting neural input</p>
+              </div>
+
+              {!isVisionActive && (
+                <button onClick={startVision} className="flex items-center gap-3 px-6 py-2.5 rounded-full border border-cyan-500/20 bg-cyan-500/5 hover:bg-cyan-500/10 transition-all group">
+                   <Eye size={16} className="text-cyan-400"/>
+                   <span className="text-[10px] font-black uppercase text-cyan-400">Engage Vision</span>
+                </button>
+              )}
+            </div>
+          </div>
+          {isVisionActive && <VisionOverlay />}
+        </div>
+      )}
+      {screen === Screen.SETTINGS && (
+        <div className={`flex flex-col h-screen p-6 overflow-y-auto transition-all ${isSidebarOpen ? 'lg:ml-72' : ''}`}>
+          <div className="max-w-xl mx-auto w-full space-y-8 mt-20 pb-20">
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-black uppercase">Settings</h1>
+              <button onClick={() => setScreen(Screen.WELCOME)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X/></button>
+            </div>
+            <div className="glass-panel p-8 space-y-8 shadow-2xl border-white/5">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">User Name</label>
+                <input type="text" value={config.userName || ''} onChange={(e) => { const n = {...config, userName: e.target.value}; setConfig(n); storageService.saveConfig(n); }} className="w-full bg-white/[0.02] border border-white/10 rounded-2xl p-4 outline-none focus:border-cyan-500 transition-all font-bold text-lg" />
+              </div>
+            </div>
+            <button onClick={() => { storageService.setUser(null); setScreen(Screen.AUTH); }} className="w-full flex items-center justify-center gap-3 p-5 text-red-500/80 border border-red-500/10 rounded-2xl hover:bg-red-500/5 font-black uppercase text-[10px] shadow-lg">
+              <LogOut size={16}/> Sign Out
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {screen === Screen.ONBOARDING_NAME && (
+        <div className="h-screen flex items-center justify-center p-6 bg-black">
+           <div className="glass-panel p-10 md:p-14 max-w-sm w-full text-center space-y-8 animate-fade-scale border-white/10 bg-black/40">
+              <div className="space-y-2 text-center">
+                <h2 className="text-2xl font-black uppercase text-white">hi, I'm Foxy.</h2>
+                <p className="text-gray-400 text-xs font-bold uppercase">What should I call you?</p>
+              </div>
+              <input 
+                  type="text" 
+                  placeholder="Your Name" 
+                  className="w-full p-4 bg-white/[0.03] rounded-2xl outline-none focus:border-cyan-500 border border-white/10 font-black text-center text-xl transition-all shadow-inner text-white uppercase" 
+                  onChange={(e)=>setConfig({...config, userName: e.target.value})} 
+              />
+              <button onClick={()=>{ storageService.saveConfig(config); setScreen(Screen.WELCOME); }} className="w-full bg-cyan-600 py-4 rounded-2xl font-black text-[11px] shadow-2xl active:scale-95 transition-all uppercase text-white hover:bg-cyan-500">
+                Get Started
+              </button>
+           </div>
+        </div>
+      )}
     </div>
   );
 };

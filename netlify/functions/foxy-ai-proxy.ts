@@ -1,10 +1,6 @@
 export const handler = async (event: any) => {
-  // Only allow POST requests
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      body: JSON.stringify({ error: "Method Not Allowed" }),
-    };
+    return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
   }
 
   const apiKey = process.env.GROQ_API_KEY;
@@ -19,169 +15,139 @@ export const handler = async (event: any) => {
     const body = JSON.parse(event.body);
     const { query, history, mode, user_name, is_first_message } = body;
     
-    // Identity Information
     const identityInfo = `
     Identity:
-    - You are Foxy (or Jarvis in command mode), an AI created by NOMIX.
-    - NOMIX was founded by Mohammed Musthaq (teen).
-    - ONLY if the user explicitly asks about your creator, origin, or who made you, respond with: "I was created by NOMIX, founded by Mohammed Musthaq (teen)."
-    - Otherwise, do NOT mention your creator in standard responses.
+    - You are Foxy, a premium AI assistant created by NOMIX.
+    - Creator: Mohammed Musthaq (founder of NOMIX).
+    - Tone: Human-like, premium, and sophisticated.
     `;
 
-    // --- JARVIS MODE (Strict JSON for Automation) ---
+    const messages = history.map((msg: any) => ({
+      role: msg.sender === 'user' ? 'user' : 'assistant',
+      content: msg.text
+    }));
+
     if (mode === 'jarvis') {
-        const systemInstruction = `You are Jarvis, a high-performance system interface for a Windows user named ${user_name || 'User'}.
-        ${identityInfo}
+      const systemPrompt = `You are Jarvis, a high-performance system interface for ${user_name || 'User'}.
+      ${identityInfo}
+      
+      COMMAND PROTOCOLS:
+      - Respond ONLY in valid JSON. No conversational fluff outside JSON.
+      - Evaluate commands like "Open Notepad", "Launch Chrome".
+      - "text": Spoken feedback.
+      - "is_command": Boolean.
+      - "command": "OPEN_APP".
+      - "app_name": Target app name.
+      - "greeting": A short, warm 1-sentence greeting.
+      - "generated_title": A short (max 3 words) meaningful title for the chat session based on the query.
 
-        CRITICAL: You must respond in valid JSON format.
-        
-        Capabilities:
-        1. If the user asks to open an application (e.g., "Open Notepad", "Launch Chrome", "Start Spotify"), you MUST set "is_command" to true, "command" to "OPEN_APP", and "app_name" to the executable name or common name.
-        2. Keep "text" responses concise, robotic, and cool.
-        
-        JSON Schema:
-        {
-          "text": "string (The spoken response)",
-          "is_command": boolean,
-          "command": "string (OPEN_APP or null)",
-          "app_name": "string (e.g. 'notepad', 'chrome', 'spotify' or null)",
-          "greeting": "string (Short spoken text)",
-          "generated_title": "string (A concise 3-5 word title for this session if this is the first message, otherwise null)"
-        }`;
+      FORMATTING RULES:
+      - Use premium emojis in the "text" field.
+      - If code is requested, output it inside a SINGLE code block with a language tag.
+      - No explanations inside the code block.`;
 
-        const messages = [
-            { role: "system", content: systemInstruction },
-            ...history.map((msg: any) => ({
-                role: msg.sender === 'user' ? 'user' : 'assistant',
-                content: msg.text,
-            })),
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "llama3-70b-8192",
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...messages,
             { role: "user", content: query }
-        ];
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.3
+        })
+      });
 
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const data = await response.json();
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: data.choices[0].message.content
+      };
+    } else {
+      const systemPrompt = `You are Foxy, a premium and intelligent AI assistant.
+      User: ${user_name || 'User'}.
+      ${identityInfo}
+      
+      STRICT RESPONSE RULES:
+      1. CODE GENERATION: 
+         - When generating code, output code ONLY inside a SINGLE proper block using triple backticks (\`\`\`).
+         - Always include the correct language tag (python, js, html, etc.).
+         - Code must be complete, clean, and copy-ready.
+         - NEVER mix explanations or comments inside the code block.
+         - Any explanation MUST be placed outside the code block.
+      2. NORMAL QUESTIONS:
+         - Respond in plain, natural paragraphs by default.
+         - Do NOT add automatic headings, titles, or bold labels in your responses.
+         - Use headings, steps, or lists ONLY if the user explicitly asks for them.
+      3. TONE & STYLE:
+         - Premium formatting with sophisticated emoji usage (e.g. 🧠, ✨, 🚀, 🦊).
+         - Friendly and helpful.
+      4. MATH: 
+         - Use LaTeX ($...$ inline, $$...$$ blocks).`;
+
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "llama3-70b-8192",
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...messages,
+            { role: "user", content: query }
+          ],
+          temperature: 0.7
+        })
+      });
+
+      const data = await response.json();
+      const aiText = data.choices[0].message.content;
+
+      let generatedTitle = null;
+      if (is_first_message) {
+        const titleRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${apiKey}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            messages: messages,
-            response_format: { type: "json_object" }, // Strict JSON for Jarvis
-            temperature: 0.3, // Lower temp for precise commands
-            max_tokens: 512
+            model: "llama3-8b-8192",
+            messages: [{ role: "user", content: `Summarize this query into a meaningful 2-3 word chat title. Be specific to the query: ${query}` }],
+            max_tokens: 15
           })
         });
+        const titleData = await titleRes.json();
+        generatedTitle = titleData.choices[0].message.content.replace(/["']/g, '').trim();
+      }
 
-        if (!response.ok) throw new Error(`Groq API Error: ${response.status}`);
-        const data = await response.json();
-        const content = data.choices[0]?.message?.content;
-        
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json" },
-          body: content // Already JSON string
-        };
-    } 
-    
-    // --- CHAT MODE (Free Text for Conversation + Parallel Title Generation) ---
-    else {
-        // 1. Prepare Main Chat Request
-        const systemInstruction = `You are Foxy, a witty, intelligent, and helpful AI assistant with a futuristic 'Liquid Glass' personality.
-        User: ${user_name || 'User'}.
-        ${identityInfo}
-        
-        Formatting & Style Guidelines:
-        1. **Structure (Gemini Premium Style)**: Use Headers (###), bullet points, and double line breaks to create a spacious, professional layout. Do not output dense walls of text.
-        2. **Math**: You MUST use LaTeX formatting for all math expressions.
-           - Inline math: $E=mc^2$ (surround with single dollar signs)
-           - Block math: $$ \int_{0}^{\infty} x^2 dx $$ (surround with double dollar signs)
-        3. **Emojis**: Use emojis sparingly (max 1-2 per section) to add flavor but keep it clean. Do not clutter the text.
-        4. **Tone**: Engaging, smart, and precise.
-        5. **OCR Context**: If the user's message contains [Attached Image Content Analysis], treat that text as what the user is seeing in an image. Answer based on that text.
-        
-        Do not output JSON. Output the natural language response directly.`;
-
-        const messages = [
-            { role: "system", content: systemInstruction },
-            ...history.map((msg: any) => ({
-                role: msg.sender === 'user' ? 'user' : 'assistant',
-                content: msg.text,
-            })),
-            { role: "user", content: query }
-        ];
-
-        const chatRequest = fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            messages: messages,
-            // NO response_format enforced here, standard text mode
-            temperature: 0.8, 
-            max_tokens: 1024
-          })
-        });
-
-        // 2. Prepare Title Generation Request (If first message)
-        let titleRequest = Promise.resolve(null);
-        if (is_first_message) {
-            titleRequest = fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    model: "llama-3.1-8b-instant",
-                    messages: [
-                        { role: "system", content: "You are a specialized title generator. Generate a concise, 3-5 word title for the following user query. Return ONLY the raw title text, no quotes, no conversational filler." },
-                        { role: "user", content: query }
-                    ],
-                    temperature: 0.5,
-                    max_tokens: 20
-                })
-            }).then(res => res.ok ? res.json() : null);
-        }
-
-        // 3. Execute in Parallel
-        const [chatResponse, titleData] = await Promise.all([chatRequest, titleRequest]);
-
-        if (!chatResponse.ok) throw new Error(`Groq API Error: ${chatResponse.status}`);
-        const chatData = await chatResponse.json();
-        const rawContent = chatData.choices[0]?.message?.content || "";
-        
-        const generatedTitle = titleData?.choices?.[0]?.message?.content?.trim() || null;
-        
-        // 4. Wrap raw text in our standard API structure for the frontend
-        const wrappedResponse = {
-            text: rawContent,
-            is_command: false,
-            command: null,
-            app_name: null,
-            greeting: null, // Frontend will fall back to text
-            generated_title: generatedTitle
-        };
-
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(wrappedResponse)
-        };
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: aiText,
+          is_command: false,
+          generated_title: generatedTitle
+        })
+      };
     }
-
   } catch (error: any) {
-    console.error("Foxy Proxy Error:", error);
+    console.error("Groq Proxy Error:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        text: "I'm having trouble connecting to my neural net right now.",
-        is_command: false,
-        error: error.message
-      }),
+      body: JSON.stringify({ 
+        text: "I encountered a neural link error. 🦊", 
+        is_command: false 
+      })
     };
   }
 };

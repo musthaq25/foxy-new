@@ -1,4 +1,4 @@
-import { Session, Message, AIResponse } from '../types';
+import { Session, AIResponse } from '../types';
 import { NETLIFY_AI_PROXY_URL } from '../constants';
 
 export const fetchAIResponse = async (
@@ -7,47 +7,46 @@ export const fetchAIResponse = async (
   userName: string,
   imageData?: string | null
 ): Promise<AIResponse> => {
-  
-  // Format history for the backend
-  // Gemini expects a specific structure, but we'll let the proxy handle the conversion to GoogleGenAI types
-  const history = session.messages
-    .filter(m => !m.isLoading && (m.text || m.imageData))
-    .slice(-20)
-    .map(m => ({
+  try {
+    const isFirstMessage = session.messages.length === 0;
+    
+    // Convert history for the proxy
+    const history = session.messages.filter(m => !m.isLoading).map(m => ({
       sender: m.sender,
-      text: m.text,
-      image: m.imageData // Pass history images if needed
+      text: m.text
     }));
 
-  const payload = {
-    session_id: session.id,
-    query: userQuery,
-    image: imageData, // Current image being sent
-    is_first_message: session.messages.length <= 1,
-    mode: session.mode,
-    history: history,
-    user_name: userName || 'Guest'
-  };
+    const response = await fetch(NETLIFY_AI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: userQuery,
+        history,
+        mode: session.mode,
+        user_name: userName,
+        is_first_message: isFirstMessage,
+        // Optional: Include image data if the proxy is updated to handle vision via Groq/others
+        image_data: imageData 
+      }),
+    });
 
-  const response = await fetch(NETLIFY_AI_PROXY_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+    if (!response.ok) throw new Error('Proxy error');
 
-  if (!response.ok) {
-    throw new Error(`API Error: ${response.status}`);
+    const data = await response.json();
+    
+    return {
+      text: data.text || "I'm processing your request.",
+      isCommand: !!data.is_command,
+      command: data.command,
+      appName: data.app_name,
+      generatedTitle: data.generated_title,
+      greeting: data.greeting
+    };
+  } catch (error) {
+    console.error("API Service Error:", error);
+    return { 
+      text: "I'm having trouble connecting to my neural net right now. Please check your connection.", 
+      isCommand: false 
+    };
   }
-
-  const data = await response.json();
-  return {
-    text: data.text,
-    isCommand: data.is_command,
-    generatedTitle: data.generated_title,
-    command: data.command,
-    appName: data.app_name,
-    greeting: data.greeting
-  };
 };

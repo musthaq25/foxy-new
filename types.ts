@@ -1,11 +1,8 @@
-
 export enum Screen {
   LOADING = 'loading',
   AUTH = 'auth',
   ONBOARDING_NAME = 'onboarding_name',
-  INTRO_SEQUENCE = 'intro_sequence',
   WELCOME = 'welcome',
-  MODE_SELECTION = 'mode_selection',
   JARVIS_MODE = 'jarvis_mode',
   CHAT_MODE = 'chat_mode',
   SETTINGS = 'settings',
@@ -14,6 +11,7 @@ export enum Screen {
 export enum Theme {
   DARK = 'dark',
   LIQUID_GLASS = 'liquid_glass',
+  WHITE = 'white',
 }
 
 export interface User {
@@ -31,11 +29,6 @@ export interface Message {
   timestamp: string;
   imageData?: string; // Base64 string for images
   isLoading?: boolean;
-  isCommand?: boolean;
-  commandData?: {
-    command: string;
-    appName: string;
-  };
 }
 
 export interface Session {

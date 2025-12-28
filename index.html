@@ -5,54 +5,44 @@
     <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
     <title>Foxy AI Assistant - Nomix Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
     
     <script>
         tailwind.config = {
             theme: {
                 extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
                     colors: {
-                        glass: {
-                            bg: 'var(--glass-bg)',
-                            border: 'var(--glass-border)',
-                        },
-                        cyan: {
-                            400: '#22d3ee',
-                            600: '#0891b2',
-                            900: '#164e63',
-                        }
+                        glass: { bg: 'var(--glass-bg)', border: 'var(--glass-border)' }
                     },
                     animation: {
                         'orb-pulse': 'orbPulse 4s infinite ease-in-out',
-                        'listening-pulse': 'listeningPulse 2s infinite ease-in-out',
-                        'fade-in': 'fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                        'slide-in': 'slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                        'listening-pulse': 'listeningPulse 1.5s infinite ease-in-out',
+                        'fade-in': 'fadeIn 0.25s ease-out forwards',
                         'fade-scale': 'fadeAndScale 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                        'slide-up': 'slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
                     },
                     keyframes: {
                         fadeIn: {
-                            '0%': { opacity: '0' },
-                            '100%': { opacity: '1' },
+                            '0%': { opacity: '0', transform: 'translateY(8px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
                         },
                         fadeAndScale: {
-                            '0%': { opacity: '0', transform: 'scale(0.95)' },
+                            '0%': { opacity: '0', transform: 'scale(0.97)' },
                             '100%': { opacity: '1', transform: 'scale(1)' },
                         },
-                        slideInRight: {
-                            '0%': { opacity: '0', transform: 'translateX(20px)' },
-                            '100%': { opacity: '1', transform: 'translateX(0)' },
+                        slideUp: {
+                          '0%': { opacity: '0', transform: 'translateY(20px)' },
+                          '100%': { opacity: '1', transform: 'translateY(0)' },
                         },
                         orbPulse: {
-                            '0%, 100%': { transform: 'scale(1)', boxShadow: '0 0 10px rgba(6, 182, 212, 0.4)' },
-                            '50%': { transform: 'scale(1.04)', boxShadow: '0 0 25px rgba(6, 182, 212, 0.7)' },
+                            '0%, 100%': { transform: 'scale(1)', boxShadow: '0 0 20px rgba(6, 182, 212, 0.2)' },
+                            '50%': { transform: 'scale(1.03)', boxShadow: '0 0 40px rgba(6, 182, 212, 0.5)' },
                         },
                         listeningPulse: {
-                            '0%, 100%': { transform: 'scale(1.02)', boxShadow: '0 0 10px #4ade80, 0 0 20px #4ade80', borderColor: '#4ade80' },
-                            '50%': { transform: 'scale(1.06)', boxShadow: '0 0 20px #4ade80, 0 0 36px #4ade80', borderColor: '#10b981' },
+                            '0%, 100%': { transform: 'scale(1)', boxShadow: '0 0 10px #10b981', borderColor: '#10b981' },
+                            '50%': { transform: 'scale(1.05)', boxShadow: '0 0 25px #10b981', borderColor: '#34d399' },
                         },
                     }
                 }
@@ -62,55 +52,61 @@
 
     <style>
         :root {
-            --glass-bg-default: rgba(17,24,39,0.7); 
-            --glass-border-default: rgba(12, 74, 110, 0.3); 
-            --accent-color: 6, 182, 212; 
-            --liquid-overlay: rgba(6, 182, 212, 0.1); 
-            --glass-bg: var(--glass-bg-default);
-            --glass-border: var(--glass-border-default);
+            --bg-main: #000000;
+            --text-main: #ffffff;
+            --text-muted: #9ca3af;
+            --glass-bg: rgba(17, 24, 39, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --accent-color: 6, 182, 212;
+            --user-bubble-bg: #1f2937;
+            --user-bubble-text: #ffffff;
+        }
+
+        .theme-white {
+            --bg-main: #ffffff;
+            --text-main: #111827;
+            --text-muted: #6b7280;
+            --glass-bg: rgba(249, 250, 251, 0.95);
+            --glass-border: rgba(0, 0, 0, 0.05);
+            --user-bubble-bg: #f3f4f6;
+            --user-bubble-text: #111827;
         }
 
         body {
-            background-color: black;
-            color: white;
+            background-color: var(--bg-main);
+            color: var(--text-main);
             overflow: hidden;
+            transition: background-color 0.4s ease, color 0.4s ease;
         }
-
-        /* Scrollbar styles */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #0f1724; }
-        ::-webkit-scrollbar-thumb { background: #06b6d4; border-radius: 6px; }
 
         .glass-panel {
             background: var(--glass-bg);
             border: 1px solid var(--glass-border);
-            box-shadow: 0 8px 30px rgba(0,0,0,0.5); 
-            backdrop-filter: blur(14px) saturate(150%); 
-            -webkit-backdrop-filter: blur(14px) saturate(150%);
-            border-radius: 16px;
-            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            backdrop-filter: blur(24px); 
+            -webkit-backdrop-filter: blur(24px);
+            border-radius: 24px;
         }
 
-        .glass-panel:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 40px rgba(6, 182, 212, 0.1), 0 0 1px rgba(6, 182, 212, 0.5);
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { 
+            background: rgba(var(--accent-color), 0.2); 
+            border-radius: 20px;
         }
 
-        .theme-liquid-glass {
-            background: radial-gradient(circle at 10% 10%, var(--liquid-overlay) 0%, transparent 60%),
-                        radial-gradient(circle at 90% 90%, var(--liquid-overlay) 0%, transparent 60%),
-                        linear-gradient(135deg, #0a1122 0%, #00040f 100%);
-            background-size: 200% 200%;
-            animation: moveGradient 10s ease-in-out infinite alternate;
-        }
+        .markdown-content p { margin-bottom: 1rem; line-height: 1.6; color: inherit; }
+        .markdown-content strong { color: var(--text-main); font-weight: 700; }
+        .markdown-content code { background: rgba(var(--accent-color), 0.1); padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; }
+        .markdown-content pre { background: rgba(0,0,0,0.5); padding: 1rem; border-radius: 12px; margin: 1rem 0; overflow-x: auto; text-align: left; border: 1px solid var(--glass-border); }
+        .markdown-content pre code { background: none; padding: 0; color: #ecf0f1; }
 
-        @keyframes moveGradient {
-            0% { background-position: 0% 50%; }
-            100% { background-position: 100% 50%; }
+        h1, h2, h3, h4, p, span, div, input, textarea, button {
+            color: var(--text-main);
+            letter-spacing: normal !important;
         }
-        
-        /* Markdown Math Adjustments */
-        .katex-display { margin: 1em 0; overflow-x: auto; overflow-y: hidden; }
+        .text-muted {
+            color: var(--text-muted) !important;
+        }
     </style>
 <script type="importmap">
 {
@@ -124,14 +120,15 @@
     "rehype-katex": "https://esm.sh/rehype-katex@7.0.0",
     "lucide-react": "https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0",
     "tesseract.js": "https://esm.sh/tesseract.js@5.0.5",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/"
+    "@google/genai": "https://esm.sh/@google/genai",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
   }
 }
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-<body>
+<body class="font-sans">
     <div id="root"></div>
 <script type="module" src="/index.tsx"></script>
 </body>
